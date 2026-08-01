@@ -10,6 +10,18 @@
 <body>
 <div id="app">
   <canvas id="stage" aria-label="Room plan. Drag objects to move them."></canvas>
+  <canvas id="stage3d" class="pixel" hidden aria-label="The room in three dimensions."></canvas>
+
+  <div class="viewswitch">
+    <button class="vbtn on" id="viewPlan">Plan</button>
+    <button class="vbtn" id="viewRoom">Look</button>
+    <button class="vbtn" id="viewWalk">Walk it</button>
+  </div>
+
+  <div class="walkbar" id="walkbar" hidden>
+    <div class="walkbar-track"><div class="walkbar-fill" id="walkFill"></div></div>
+    <p id="walkNote"></p>
+  </div>
 
   <header class="hud-top room-top">
     <div class="hud-level">

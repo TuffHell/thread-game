@@ -1,5 +1,75 @@
 /* Room prototype. Layered on top of the shared tokens in style.css. */
 
+/* The 3D buffer is 216px tall and blown up. Nearest neighbour is the entire
+   art direction, so every browser prefix stays in. */
+.pixel {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  -ms-interpolation-mode: nearest-neighbor;
+}
+
+.viewswitch {
+  position: absolute;
+  top: clamp(14px, 2.2vw, 28px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-radius: 100px;
+  padding: 3px;
+  z-index: 5;
+}
+.vbtn {
+  font: inherit;
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 0;
+  border-radius: 100px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.vbtn:hover { color: var(--ink); }
+.vbtn.on { color: var(--bg); background: var(--ink); font-weight: 600; }
+
+.walkbar {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 42px;
+  width: min(460px, calc(100vw - 40px));
+  z-index: 5;
+  pointer-events: none;
+}
+.walkbar-track {
+  height: 3px;
+  background: var(--edge);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.walkbar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--ink);
+  transition: background var(--t-fast);
+}
+.walkbar.bad .walkbar-fill { background: #ff6b5e; }
+.walkbar p {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
 .room-top {
   position: absolute;
   top: 0; left: 0; right: 0;

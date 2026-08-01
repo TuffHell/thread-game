@@ -35,7 +35,12 @@ export function drawBackdrop (ctx, vw, vh) {
  * scaled up, which is both fast and gives the soft look of a real survey.
  */
 let heatCanvas = null;
-export function drawHeat (ctx, v, r, grid, mode = 'load') {
+
+/**
+ * The heat image itself, shared by the plan view and the 3D floor so the
+ * survey is literally the same pixels in both.
+ */
+export function buildHeat (grid, mode = 'load') {
   if (!heatCanvas) heatCanvas = document.createElement('canvas');
   if (heatCanvas.width !== grid.cols || heatCanvas.height !== grid.rows) {
     heatCanvas.width = grid.cols;
@@ -61,11 +66,15 @@ export function drawHeat (ctx, v, r, grid, mode = 'load') {
     if (grid.blocked[i]) img.data[o + 3] = 0;
   }
   hc.putImageData(img, 0, 0);
+  return heatCanvas;
+}
 
+export function drawHeat (ctx, v, r, grid, mode = 'load') {
+  const hc = buildHeat(grid, mode);
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.globalAlpha = 0.92;
-  ctx.drawImage(heatCanvas, v.ox, v.oy, r.w * v.s, r.h * v.s);
+  ctx.drawImage(hc, v.ox, v.oy, r.w * v.s, r.h * v.s);
   ctx.restore();
 }
 
