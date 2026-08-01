@@ -445,10 +445,18 @@ export class Game {
       const parent = this.parentWeave;
       const need = requirementFor(parent, s.id);
       const cur = effectiveFreq(s);
-      const card = document.getElementById('interrupt');
-      const lift = this.interrupts.state !== 'idle' && !card.hidden
-        ? card.getBoundingClientRect().height + 40
-        : 0;
+      // The meter is drawn on the canvas but has to share the bottom of the
+      // screen with real DOM controls, whose height and position change with
+      // viewport and with whatever is on screen. Rather than guess, measure
+      // whatever is currently down there and sit above the highest of them.
+      let floor = vh;
+      for (const sel of ['#interrupt', '#teach', '.tools']) {
+        const el = document.querySelector(sel);
+        if (!el || el.hidden || el.offsetParent === null) continue;
+        floor = Math.min(floor, el.getBoundingClientRect().top);
+      }
+      const lift = Math.max(0, (vh - 96) - (floor - 78));
+
       drawComposite(ctx, vw, vh, {
         need, current: cur, lift,
         affinity: this.insideAffinity,
