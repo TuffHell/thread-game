@@ -91,7 +91,21 @@ export const KINDS = {
              emits: { clutter: 0.42 }, clutterRadius: 240, absorbs: { sound: 0.22 }, radius: { sound: 200 } },
   menu:    { label: 'Menu board', r: 34, cost: 0, movable: false, emits: { clutter: 0.34 }, clutterRadius: 220 },
   bin:     { label: 'Bin', r: 20, cost: 0, emits: { smell: 0.4, clutter: 0.12 }, radius: { smell: 200 }, clutterRadius: 120 },
-  pot:     { label: 'Plant', r: 24, cost: 0, absorbs: { sound: 0.12, glare: 0.15 }, radius: { sound: 140, glare: 150 } }
+  pot:     { label: 'Plant', r: 24, cost: 0, absorbs: { sound: 0.12, glare: 0.15 }, radius: { sound: 140, glare: 150 } },
+
+  // A fitted cover for a fluorescent tube. The real object exists, is cheap,
+  // and is one of the first things sensory-friendly refits actually do:
+  // it kills the flicker and softens the light without rewiring anything.
+  diffuser: { label: 'Tube diffuser', r: 26, cost: 1,
+              absorbs: { flicker: 0.72, light: 0.38 },
+              radius: { flicker: 300, light: 260 } },
+
+  // The waiting-room television, a famous real-world offender: sound you did
+  // not choose, flicker you cannot look away from, and nobody in the room has
+  // the remote.
+  tv:      { label: 'Wall TV', r: 30, cost: 0, movable: false,
+             emits: { sound: 0.42, flicker: 0.6, light: 0.2 },
+             radius: { sound: 330, flicker: 290, light: 200 } }
 };
 
 let uid = 0;
@@ -166,9 +180,10 @@ export function transmission (r, ax, ay, bx, by) {
   return m;
 }
 
-/** Is there a clear line of sight, ignoring soft furnishing? */
+/** Is there a clear line of sight? Glass is a wall you can see through. */
 export function seesThrough (r, ax, ay, bx, by) {
   for (const w of r.walls) {
+    if (w.material === 'glass') continue;
     if (segmentsCross(ax, ay, bx, by, w.x1, w.y1, w.x2, w.y2)) return false;
   }
   for (const t of r.things) {
@@ -185,6 +200,39 @@ export function pointToSegment (px, py, ax, ay, bx, by) {
   let t = L ? ((px - ax) * vx + (py - ay) * vy) / L : 0;
   t = Math.max(0, Math.min(1, t));
   return Math.hypot(px - (ax + vx * t), py - (ay + vy * t));
+}
+
+/* ------------------------------------------------------------------ */
+/* Owner constraints                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The owner's rules. They are what stop every room having the same answer:
+ * without them the winning move is always "put the loud thing in a far
+ * corner", and with them you have to solve the problem where it stands.
+ *
+ * Two primitive types carry all of it:
+ *   near      thing A stays within d of thing B (workflow, plumbing, wiring)
+ *   sightline point A must see point B (the menu, the noticeboard, the till)
+ *
+ * Returns the list of broken rules, each with the owner's wording.
+ */
+export function checkConstraints (r, constraints = []) {
+  const broken = [];
+  const find = k => r.things.find(t => t.placed && t.kind === k);
+
+  for (const c of constraints) {
+    if (c.type === 'near') {
+      const a = find(c.a), b = find(c.b);
+      if (!a || !b) continue;
+      if (Math.hypot(a.x - b.x, a.y - b.y) > c.d) broken.push(c);
+    } else if (c.type === 'sightline') {
+      const a = find(c.a), b = find(c.b);
+      if (!a || !b) continue;
+      if (!seesThrough(r, a.x, a.y, b.x, b.y)) broken.push(c);
+    }
+  }
+  return broken;
 }
 
 /** Nearest point on any wall, used for the reverb term. */

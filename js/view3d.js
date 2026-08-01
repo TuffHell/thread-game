@@ -264,6 +264,9 @@ export class View3D {
       case 'window':
         g.add(box(14, 150, D.r * 2, PAL.wallGlass, 90));
         break;
+      case 'diffuser':
+        g.add(box(D.r * 2, 7, 36, 0xf4f7f2, WALL_H - 34));
+        break;
       case 'panel':
         g.add(box(D.r * 2, 90, 10, PAL.wallAcoustic, 110));
         break;
@@ -474,6 +477,21 @@ export class View3D {
 
   /* ---------------------------------------------------------------- */
 
+  /**
+   * Two finishes over the same geometry.
+   *
+   * 'crisp' renders the low-poly scene at full resolution: clean edges, flat
+   * faces, hard shadows. 'pixel' is the 216-line buffer with ordered dither.
+   * The models never change — the pixel look was always only a post-process,
+   * which is why this toggle costs nothing and belongs in settings rather
+   * than in the bin.
+   */
+  setStyle (style) {
+    this.styleMode = style;
+    this.rw = null;   // force the next resize to re-run
+    this.canvas.classList.toggle('pixelated', style === 'pixel');
+  }
+
   resize () {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     // A hidden canvas has no layout box, so this runs with zeroes and the
@@ -481,10 +499,25 @@ export class View3D {
     // it to zero width and the whole view goes black with no error anywhere.
     if (w < 2 || h < 2) return;
     const aspect = w / h;
-    // Keep the pixel grid square by fixing height and letting width follow.
+
+    if ((this.styleMode ?? 'crisp') === 'crisp') {
+      // Full resolution, capped so a 5K display does not pay for pixels the
+      // art style cannot use.
+      const scale = Math.min(1, 1920 / w);
+      const rw = Math.round(w * scale), rh = Math.round(h * scale);
+      if (rw !== this.rw || rh !== this.rh) {
+        this.rw = rw; this.rh = rh;
+        this.renderer.setSize(rw, rh, false);
+        this.camera.aspect = aspect;
+        this.camera.updateProjectionMatrix();
+      }
+      return;
+    }
+
+    // Pixel: keep the grid square by fixing height and letting width follow.
     const rw = Math.round(RENDER_H * aspect);
-    if (rw !== this.rw) {
-      this.rw = rw;
+    if (rw !== this.rw || this.rh !== RENDER_H) {
+      this.rw = rw; this.rh = RENDER_H;
       this.renderer.setSize(rw, RENDER_H, false);
       this.target.setSize(rw, RENDER_H);
       this.camera.aspect = aspect;
@@ -494,6 +527,11 @@ export class View3D {
 
   render () {
     this.resize();
+    if ((this.styleMode ?? 'crisp') === 'crisp') {
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
     this.renderer.setRenderTarget(this.target);
     this.renderer.render(this.scene, this.camera);
     this.renderer.setRenderTarget(null);

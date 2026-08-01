@@ -1,16 +1,17 @@
 /**
  * The playable loop.
  *
- * Drag something, the field recomputes, the visitor walks it again, and you
- * find out immediately whether the trip works and what broke it. That is the
- * whole game and everything else is decoration on top of it.
+ * Drag something, the field recomputes, and every person on the commission
+ * walks the room again. You sign off when all of them make it and none of
+ * the owner's rules are broken. That is the game; everything else is
+ * surfaces around it.
  */
 
 import { settings } from './config.js';
-import { ROOMS } from './rooms.js';
-import { def, KINDS, spent, thing } from './room.js';
+import { BUILDERS } from './rooms.js';
+import { def, KINDS, spent, thing, checkConstraints } from './room.js';
 import { makeGrid, compute, combine, explain, DOMAINS } from './field.js';
-import { visit, PEOPLE, MODEL } from './person.js';
+import { visit, PEOPLE } from './person.js';
 import {
   fit, toScreen, toRoom, drawBackdrop, drawHeat, drawWalls,
   drawRoute, drawThings, drawMarkers
@@ -18,7 +19,7 @@ import {
 
 const READABLE = {
   sound: 'noise', light: 'brightness', flicker: 'flicker', glare: 'glare',
-  crowd: 'people close by', clutter: 'visual clutter',
+  crowd: 'people close by', clutter: 'visual clutter', smell: 'smell',
   escape: 'nowhere to retreat to', exposure: 'cannot see the way out'
 };
 
@@ -27,85 +28,108 @@ export class Studio {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.ui = ui;
-    this.index = 0;
     this.mode = 'load';
     this.held = null;
     this.hover = null;
     this.dirty = true;
   }
 
-  load (i) {
-    const spec = ROOMS[i] ?? ROOMS[0];
-    this.index = i;
-    this.spec = spec;
-    this.room = spec.build();
+  /** Take a commission: a room, its people, the owner's rules. */
+  load (commission) {
+    this.commission = commission;
+    this.room = BUILDERS[commission.room]();
+    if (commission.budget != null) this.room.budget = commission.budget;
+    this.constraints = commission.constraints ?? [];
+    this.people = commission.people.map(k => PEOPLE[k]);
+    this.viewIdx = 0;
     this.grid = makeGrid(this.room, 12);
-    this.person = PEOPLE[spec.person ?? 'mara'];
     this.held = null;
     this.trayPick = null;
     this.moves = 0;
-    this.attempts = 0;
     this.recompute();
     this.ui.onRoom(this);
   }
 
-  setPerson (key) {
-    this.person = PEOPLE[key] ?? this.person;
-    this.recompute();
-    this.ui.onRoom(this);
+  get person () { return this.people[this.viewIdx]; }
+  get result () { return this.results?.[this.viewIdx]; }
+
+  setViewPerson (i) {
+    this.viewIdx = Math.max(0, Math.min(this.people.length - 1, i));
+    // Re-lay the display field in this person's weights so the heatmap shows
+    // the room as it is for them, which is the entire point of profiles.
+    combine(this.grid, this.person.weights);
+    this.dirty = true;
+    this.ui.onResult(this);
   }
 
   /** The only expensive thing in the game, and it runs on every change. */
   recompute () {
     compute(this.room, this.grid);
-    // Weighted by who is actually walking it, so the same room is a different
-    // problem for different people. That is the point of the profiles.
+    // Everyone walks. The same layers, weighted per person, so the same room
+    // fails differently for each of them.
+    this.results = this.people.map(p => {
+      combine(this.grid, p.weights);
+      return visit(this.room, this.grid, p);
+    });
     combine(this.grid, this.person.weights);
-    this.result = visit(this.room, this.grid, this.person);
+    this.broken = checkConstraints(this.room, this.constraints);
     this.dirty = true;
     this.ui.onResult(this);
   }
 
-  /** Plain words for what is wrong, at the place it went wrong. */
-  verdict () {
-    const r = this.result;
-    if (!r) return null;
-    const who = r.person.name;
+  /** Everyone through, nothing broken, ready for the owner's signature. */
+  ready () {
+    return this.results.every(r => r.ok) && this.broken.length === 0;
+  }
 
-    if (r.ok) {
-      const bits = [`with ${Math.round(r.reserve)}% left over`];
-      if (r.maskedSeconds > 3) bits.push(`${Math.round(r.maskedSeconds)}s of it holding herself together`);
-      if (r.settledSeconds > 2) bits.push('and somewhere to settle when she needed it');
+  /** Plain words for where it stands, worst news first. */
+  verdict () {
+    if (!this.results) return null;
+
+    if (this.broken.length) {
       return {
-        ok: true,
-        headline: `${who} got in, ordered, sat down and left.`,
-        detail: bits.join(', ') + '.'
+        ok: false, owner: true,
+        headline: 'The owner will not sign this off.',
+        detail: this.broken.map(b => b.text).join(' ')
       };
     }
-    if (r.reason === 'blocked') {
-      return { ok: false, headline: 'There is no way through.', detail: `Blocked ${r.leg}.` };
+
+    const bad = this.results.find(r => !r.ok);
+    if (!bad) {
+      const names = this.results.map(r => r.person.name);
+      const worstReserve = Math.min(...this.results.map(r => Math.round(r.reserve)));
+      const list = names.length === 1 ? names[0]
+        : names.slice(0, -1).join(', ') + ' and ' + names.at(-1);
+      return {
+        ok: true,
+        headline: `${list} ${names.length === 1 ? 'made' : 'all made'} it in, ordered, and left.`,
+        detail: `The tightest margin was ${worstReserve}% of someone's reserve. Ready to sign off.`
+      };
     }
 
-    const cause = r.blame ? READABLE[r.blame.domain] ?? r.blame.domain : 'the room';
-    const broke = r.events.length
-      ? ` She had been interrupted ${r.events.length} ` +
-        `time${r.events.length > 1 ? 's' : ''} by then` +
-        (r.events.some(e => !e.recoverable) ? ', with nowhere to settle after.' : '.')
+    const who = bad.person.name;
+    if (bad.reason === 'blocked') {
+      return { ok: false, headline: 'There is no way through.', detail: `Blocked ${bad.leg}.` };
+    }
+    const cause = bad.blame ? READABLE[bad.blame.domain] ?? bad.blame.domain : 'the room';
+    const broke = bad.events.length
+      ? ` ${who} had been interrupted ${bad.events.length} time${bad.events.length > 1 ? 's' : ''} by then` +
+        (bad.events.some(e => !e.recoverable) ? ', with nowhere to settle after.' : '.')
       : '';
 
-    if (r.reason === 'spike') {
+    if (bad.reason === 'spike') {
       return {
         ok: false,
-        headline: `It became too much ${r.leg}.`,
+        headline: `It became too much for ${who}, ${bad.leg}.`,
         detail: `One spot is past what ${who} can take, and the reason is ${cause}. ` +
                 'Nothing elsewhere in the room makes up for it.' + broke
       };
     }
     return {
       ok: false,
-      headline: `${who} ran out ${r.leg}.`,
-      detail: `Nothing here was unbearable by itself, but ${cause} across the ` +
-              'whole visit added up to more than she had.' + broke
+      headline: `${who} ran out, ${bad.leg}.`,
+      detail: `Nothing was unbearable by itself, but ${cause} across the whole ` +
+              `visit added up to more than ${who} had.` + broke
     };
   }
 
@@ -134,14 +158,13 @@ export class Studio {
   }
 
   onDown (sx, sy) {
-    // Placing something from the tray.
     if (this.trayPick) {
       const v = this.view();
       const p = toRoom(v, sx, sy);
       const kind = this.trayPick;
       const cost = KINDS[kind].cost ?? 0;
       if (cost > this.budgetLeft()) {
-        this.ui.say('Not enough budget left for that.');
+        this.ui.say('Not enough of the owner’s goodwill left for that.');
         return;
       }
       const t = thing(kind, clamp(p.x, 20, this.room.w - 20), clamp(p.y, 20, this.room.h - 20));
@@ -156,10 +179,7 @@ export class Studio {
     }
 
     const t = this.thingAt(sx, sy);
-    if (t) {
-      this.held = t.id;
-      this.grabbed = { dx: 0, dy: 0 };
-    }
+    if (t) this.held = t.id;
   }
 
   onMove (sx, sy) {
@@ -185,7 +205,7 @@ export class Studio {
     if (this.held) { this.moves++; this.held = null; }
   }
 
-  /** Send an item back to the tray and refund it. */
+  /** Send a bought item back and refund it. */
   removeHeld () {
     const t = this.room.things.find(x => x.id === this.held || x.id === this.hover);
     if (!t || !t.fromTray) return;
@@ -197,10 +217,10 @@ export class Studio {
 
   setMode (m) { this.mode = m; this.dirty = true; }
 
-  /** What is worst at the point under the cursor. */
+  /** What is worst at the point under the cursor, in this person's terms. */
   probeReading () {
     if (!this.probe) return null;
-    const top = explain(this.grid, this.probe.x, this.probe.y)
+    const top = explain(this.grid, this.probe.x, this.probe.y, this.person.weights)
       .filter(d => d.raw > 0.04)
       .slice(0, 3);
     if (!top.length) return null;
@@ -212,6 +232,9 @@ export class Studio {
   render () {
     const c = this.canvas;
     const vw = c.clientWidth, vh = c.clientHeight;
+    // A canvas mid-layout has no box; fitting a room into it produces a
+    // negative scale and negative-radius arcs. Skip the frame instead.
+    if (vw < 2 || vh < 2) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     if (c.width !== vw * dpr || c.height !== vh * dpr) {
       c.width = vw * dpr; c.height = vh * dpr;

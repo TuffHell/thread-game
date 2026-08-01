@@ -82,7 +82,7 @@ export const MODEL = {
 
 /** Things that happen in a café. None of them are anyone being unkind. */
 export const EVENTS = [
-  { at: 0.22, text: 'The door bangs behind them.' },
+  { at: 0.16, text: 'The door bangs behind them.' },
   { at: 0.46, text: 'Someone asks if they are in the queue.' },
   { at: 0.63, text: 'A tray goes down hard on the counter.' },
   { at: 0.78, text: 'The barista calls a name twice.' },

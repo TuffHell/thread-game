@@ -1,42 +1,97 @@
 /**
- * Boot for the room prototype.
+ * Boot and orchestration for Room to Breathe.
+ *
+ * All surfaces live here: title, commissions board, brief, the three in-game
+ * views, debrief, ending, about, help, settings. The studio owns the room and
+ * the simulation; this file owns everything around it.
  */
 
 import { Studio } from './studio.js';
 import { KINDS } from './room.js';
 import { DOMAINS } from './field.js';
-import { ROOMS } from './rooms.js';
-import { palette, settings } from './config.js';
+import {
+  COMMISSIONS, CAST, GAME, loadProgress, saveProgress, isUnlocked, starsFor
+} from './campaign.js';
+import { PEOPLE } from './person.js';
+import { palette } from './config.js';
 import { buildHeat } from './plan.js';
 import { View3D } from './view3d.js';
+import { SOURCES } from './fragments.js';
 
 const $ = id => document.getElementById(id);
 
 const LAYER_LABEL = {
   load: 'everything', sound: 'noise', light: 'brightness', flicker: 'flicker',
-  glare: 'glare', crowd: 'people', clutter: 'clutter',
+  glare: 'glare', crowd: 'people', clutter: 'clutter', smell: 'smell',
   escape: 'retreat', exposure: 'wayfinding'
 };
 
+const OVERLAYS = ['title', 'board', 'brief', 'debrief', 'ending', 'help', 'about', 'settings'];
+
+/* ------------------------------------------------------------------ */
+/* Preferences                                                         */
+/* ------------------------------------------------------------------ */
+
+const PREFS_KEY = 'room-to-breathe.prefs';
+const prefs = (() => {
+  try { return { style: 'crisp', motion: 'on', text: 'normal', ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }; }
+  catch { return { style: 'crisp', motion: 'on', text: 'normal' }; }
+})();
+function savePrefs () {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* fine */ }
+}
+
+/* ------------------------------------------------------------------ */
+/* State                                                               */
+/* ------------------------------------------------------------------ */
+
+let progress = loadProgress();
+let commission = null;
+let mode = 'plan';
+let walkT = 0;
+let orbit = -Math.PI / 4;
+let briefTarget = null;
+
+/* ------------------------------------------------------------------ */
+/* Interface plumbing                                                  */
+/* ------------------------------------------------------------------ */
+
 const ui = {
   onRoom (s) {
-    $('roomCount').textContent = `room ${s.index + 1} of ${ROOMS.length}`;
-    $('roomTitle').textContent = s.spec.title;
-    $('roomLine').textContent = s.spec.line;
-    $('personName').textContent = s.person.name;
-    $('personBlurb').textContent = s.person.blurb;
+    const idx = COMMISSIONS.indexOf(commission) + 1;
+    $('roomCount').textContent = `commission ${idx} of ${COMMISSIONS.length}`;
+    $('roomTitle').textContent = commission.title;
+    this.syncPersonTabs(s);
     this.syncTray(s);
     this.buildLayers(s);
+  },
+
+  syncPersonTabs (s) {
+    $('personTabs').innerHTML = s.people.map((p, i) => {
+      const r = s.results[i];
+      return `<button class="ptab${i === s.viewIdx ? ' on' : ''}${r?.ok ? ' good' : ''}"
+        data-i="${i}">${p.name}</button>`;
+    }).join('');
+    for (const b of $('personTabs').querySelectorAll('.ptab')) {
+      b.onclick = () => {
+        studio.setViewPerson(+b.dataset.i);
+        walkT = 0;
+        this.syncPersonTabs(studio);
+      };
+    }
+    $('personBlurb').textContent = s.person.blurb;
   },
 
   onResult (s) {
     const v = s.verdict();
     if (!v) return;
     $('verdict').classList.toggle('ok', v.ok);
+    $('verdict').classList.toggle('owner', !!v.owner);
     $('verdictHead').textContent = v.headline;
     $('verdictDetail').textContent = v.detail;
     $('budgetRead').textContent = `${s.budgetLeft()} of ${s.room.budget}`;
     $('live').textContent = `${v.headline} ${v.detail}`;
+    $('signoffBtn').hidden = !(mode === 'plan' && s.ready());
   },
 
   syncTray (s) {
@@ -63,10 +118,7 @@ const ui = {
       `<button class="layer${m === s.mode ? ' on' : ''}" data-m="${m}">${LAYER_LABEL[m] ?? m}</button>`
     ).join('');
     for (const b of $('layers').querySelectorAll('.layer')) {
-      b.onclick = () => {
-        s.setMode(b.dataset.m);
-        this.buildLayers(s);
-      };
+      b.onclick = () => { s.setMode(b.dataset.m); this.buildLayers(s); };
     }
   },
 
@@ -75,18 +127,234 @@ const ui = {
 
 const canvas = $('stage');
 const studio = new Studio(canvas, ui);
-window.room = { studio, ui, settings };
+const gl = $('stage3d');
+const view = new View3D(gl);
+view.setStyle(prefs.style);
+
+window.room = { studio, ui, view, prefs, progress, COMMISSIONS };
 
 document.documentElement.style.setProperty('--bg', palette().bg);
 document.body.style.background = palette().bg;
+document.documentElement.classList.toggle('text-large', prefs.text === 'large');
 
-studio.load(0);
+/* ------------------------------------------------------------------ */
+/* Overlay routing                                                     */
+/* ------------------------------------------------------------------ */
+
+function show (id) {
+  for (const o of OVERLAYS) $(o).hidden = o !== id;
+}
+function closeOverlays () {
+  for (const o of OVERLAYS) $(o).hidden = true;
+}
+function setInGame (on) {
+  $('viewswitch').hidden = !on;
+  $('gamehud').hidden = !on;
+  if (!on) {
+    for (const id of ['tray', 'layers', 'verdict', 'meters', 'walkbar', 'interrupt3d', 'signoffBtn']) {
+      $(id).hidden = true;
+    }
+    $('stage').hidden = true;
+    gl.hidden = true;
+  }
+}
+
+/* Title ------------------------------------------------------------- */
+
+$('playBtn').onclick = () => { renderBoard(); show('board'); };
+$('helpBtn').onclick = () => show('help');
+$('aboutBtn').onclick = () => { renderAbout(); show('about'); };
+$('settingsBtn').onclick = () => { syncSettings(); show('settings'); };
+$('helpBack').onclick = () => show('title');
+$('aboutBack').onclick = () => show('title');
+$('settingsBack').onclick = () => show('title');
+$('boardBack').onclick = () => show('title');
+
+/* Board ------------------------------------------------------------- */
+
+function renderBoard () {
+  $('boardList').innerHTML = COMMISSIONS.map(c => {
+    const open = isUnlocked(c, progress);
+    const stars = progress.done[c.id] ?? 0;
+    const who = c.people.map(k => PEOPLE[k].name).join(' · ');
+    return `<button class="job${open ? '' : ' locked'}" data-id="${c.id}" ${open ? '' : 'disabled'}>
+      <span class="job-title">${c.title}</span>
+      <span class="job-who">${open ? who : 'finish the one before'}</span>
+      <span class="job-stars">${stars ? '★'.repeat(stars) + '☆'.repeat(3 - stars) : (open ? 'new' : '')}</span>
+    </button>`;
+  }).join('');
+  for (const b of $('boardList').querySelectorAll('.job:not(.locked)')) {
+    b.onclick = () => openBrief(COMMISSIONS.find(c => c.id === b.dataset.id));
+  }
+}
+
+/* Brief ------------------------------------------------------------- */
+
+function openBrief (c) {
+  briefTarget = c;
+  $('briefOwner').textContent = `a commission from ${c.owner}`;
+  $('briefTitle').textContent = c.title;
+  $('briefText').textContent = c.brief;
+  $('briefPeople').innerHTML = c.people.map(k =>
+    `<div class="cast"><b>${PEOPLE[k].name}</b><p>${CAST[k].story}</p>
+     <p class="cast-mech">${PEOPLE[k].blurb}</p></div>`
+  ).join('');
+  $('briefRules').innerHTML = (c.constraints ?? []).length
+    ? `<div class="rules"><b>The owner’s rules</b>` +
+      c.constraints.map(r => `<p>${r.text}</p>`).join('') + '</div>'
+    : '';
+  show('brief');
+}
+
+$('briefBack').onclick = () => show('board');
+$('briefGo').onclick = () => {
+  commission = briefTarget;
+  studio.load(commission);
+  closeOverlays();
+  setInGame(true);
+  setMode('plan');
+};
+
+/* Sign off ----------------------------------------------------------- */
+
+$('signoffBtn').onclick = () => {
+  if (!studio.ready()) return;
+  const stars = starsFor(studio.results, studio.budgetLeft());
+  progress.done[commission.id] = Math.max(progress.done[commission.id] ?? 0, stars);
+  saveProgress(progress);
+
+  $('debriefTitle').textContent = commission.title;
+  $('debriefStars').textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+  $('debriefGrid').innerHTML = studio.results.map(r => {
+    const cells = [
+      ['worst moment', `${Math.round(r.worst.load * 100)}%`],
+      ['reserve left', `${Math.round(r.reserve)}%`],
+      ['interruptions', String(r.events.length)],
+      ['recovered', String(r.events.filter(e => e.recoverable).length)]
+    ];
+    if (r.maskedSeconds > 2) cells.push(['holding it together', `${Math.round(r.maskedSeconds)}s`]);
+    return `<div class="debrief-person"><dt>${r.person.name}</dt>` +
+      cells.map(([k, v]) => `<dd><i>${k}</i><b>${v}</b></dd>`).join('') + '</div>';
+  }).join('');
+  $('debriefNote').textContent = debriefNote();
+
+  const next = nextCommission();
+  $('debriefNext').textContent = next ? 'Next commission' : 'Finish';
+  setInGame(false);
+  show('debrief');
+};
+
+function debriefNote () {
+  const rs = studio.results;
+  const masked = rs.reduce((n, r) => n + r.maskedSeconds, 0);
+  const rescued = rs.some(r => r.events.length && r.events.every(e => e.recoverable));
+  if (rescued) {
+    return 'They were still interrupted — the world does not stop — but every ' +
+      'time, there was somewhere to settle after. That is what you actually built.';
+  }
+  if (masked > 6) {
+    return 'It works, and part of what made it work was them holding themselves ' +
+      'together through the crowded stretch. The room is better. It is not yet kind.';
+  }
+  return 'Nobody was asked to cope, push through, or be less sensitive. The room ' +
+    'moved instead. That is the whole trick, and it was always available.';
+}
+
+function nextCommission () {
+  const i = COMMISSIONS.indexOf(commission);
+  return COMMISSIONS[i + 1] ?? null;
+}
+
+$('debriefNext').onclick = () => {
+  const next = nextCommission();
+  if (next) { openBrief(next); return; }
+  const total = Object.values(progress.done).reduce((a, b) => a + b, 0);
+  $('endingStars').textContent =
+    `${total} star${total === 1 ? '' : 's'} across ${Object.keys(progress.done).length} commissions.`;
+  show('ending');
+};
+$('debriefBoard').onclick = () => { renderBoard(); show('board'); };
+$('endingBoard').onclick = () => { renderBoard(); show('board'); };
+$('exitBtn').onclick = () => { setInGame(false); renderBoard(); show('board'); };
+
+/* About -------------------------------------------------------------- */
+
+function renderAbout () {
+  $('aboutSources').innerHTML = SOURCES.map(s =>
+    `<div class="source"><b>${s.what}</b><i>${s.who}</i><p>${s.note}</p></div>`
+  ).join('');
+}
+
+/* Settings ----------------------------------------------------------- */
+
+const SETTING_GROUPS = [
+  ['styleChoices', v => { prefs.style = v; view.setStyle(v); }, () => prefs.style],
+  ['motionChoices', v => { prefs.motion = v; }, () => prefs.motion],
+  ['textChoices', v => {
+    prefs.text = v;
+    document.documentElement.classList.toggle('text-large', v === 'large');
+  }, () => prefs.text]
+];
+for (const [id, set] of SETTING_GROUPS) {
+  for (const b of $(id).querySelectorAll('.choice')) {
+    b.setAttribute('role', 'radio');
+    b.onclick = () => { set(b.dataset.v); savePrefs(); syncSettings(); };
+  }
+}
+function syncSettings () {
+  for (const [id, , get] of SETTING_GROUPS) {
+    for (const b of $(id).querySelectorAll('.choice')) {
+      b.setAttribute('aria-checked', String(b.dataset.v === get()));
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* In-game views                                                       */
+/* ------------------------------------------------------------------ */
+
+function rebuild3d () {
+  view.build(studio.room, buildHeat(studio.grid, studio.mode));
+}
+
+function setMode (m) {
+  mode = m;
+  $('stage').hidden = m !== 'plan';
+  gl.hidden = m === 'plan';
+  $('walkbar').hidden = m !== 'walk';
+  $('meters').hidden = m === 'plan';
+  $('tray').hidden = m !== 'plan';
+  $('layers').hidden = m === 'walk';
+  $('verdict').hidden = m === 'walk';
+  $('probe').style.display = m === 'plan' ? '' : 'none';
+  $('signoffBtn').hidden = !(m === 'plan' && studio.ready());
+  $('interrupt3d').hidden = true;
+  for (const [id, key] of [['viewPlan', 'plan'], ['viewRoom', 'look'], ['viewWalk', 'walk']]) {
+    $(id).classList.toggle('on', key === m);
+  }
+  if (m !== 'plan') { rebuild3d(); walkT = 0; }
+}
+window.room.setMode = setMode;
+
+$('viewPlan').onclick = () => setMode('plan');
+$('viewRoom').onclick = () => setMode('look');
+$('viewWalk').onclick = () => setMode('walk');
+
+const origRecompute = studio.recompute.bind(studio);
+studio.recompute = function () {
+  origRecompute();
+  if (mode !== 'plan' && view.room) {
+    view.sync(studio.room);
+    view.refreshLights();
+  }
+};
+
+/* Pointer ------------------------------------------------------------ */
 
 const local = e => {
   const r = canvas.getBoundingClientRect();
   return { x: e.clientX - r.left, y: e.clientY - r.top };
 };
-
 canvas.addEventListener('pointerdown', e => {
   canvas.setPointerCapture(e.pointerId);
   const p = local(e);
@@ -100,64 +368,29 @@ canvas.addEventListener('pointermove', e => {
 });
 canvas.addEventListener('pointerup', () => studio.onUp());
 canvas.addEventListener('pointercancel', () => studio.onUp());
-
 window.addEventListener('keydown', e => {
-  if (e.key === 'Backspace' || e.key === 'Delete') {
+  if ((e.key === 'Backspace' || e.key === 'Delete') && commission) {
     e.preventDefault();
     studio.removeHeld();
   }
 });
-
-/* ---------------------------------------------------------------- */
-/* Views                                                             */
-/* ---------------------------------------------------------------- */
-
-const gl = $('stage3d');
-const view = new View3D(gl);
-let mode = 'plan';
-let walkT = 0;
-let orbit = -Math.PI / 4;
-
-function rebuild3d () {
-  view.build(studio.room, buildHeat(studio.grid, studio.mode));
-}
-
-function setMode (m) {
-  mode = m;
-  $('stage').hidden = m !== 'plan';
-  gl.hidden = m === 'plan';
-  $('walkbar').hidden = m !== 'walk';
-  $('tray').style.display = m === 'plan' ? '' : 'none';
-  $('layers').style.display = m === 'walk' ? 'none' : '';
-  // Nothing sits over the view while you are standing in the room.
-  $('verdict').style.display = m === 'walk' ? 'none' : '';
-  $('probe').style.display = m === 'walk' ? 'none' : '';
-  for (const [id, key] of [['viewPlan', 'plan'], ['viewRoom', 'look'], ['viewWalk', 'walk']]) {
-    $(id).classList.toggle('on', key === m);
-  }
-  if (m !== 'plan') { rebuild3d(); walkT = 0; }
-}
-
-$('viewPlan').onclick = () => setMode('plan');
-$('viewRoom').onclick = () => setMode('look');
-$('viewWalk').onclick = () => setMode('walk');
-
-// Recompute should refresh the 3D scene too, whichever view is showing.
-const origRecompute = studio.recompute.bind(studio);
-studio.recompute = function () {
-  origRecompute();
-  if (mode !== 'plan' && view.room) {
-    view.sync(studio.room);
-    view.refreshLights();
-  }
-};
-
 gl.addEventListener('pointermove', e => {
   if (mode !== 'look' || !e.buttons) return;
   orbit -= e.movementX * 0.005;
 });
 
-/* ---------------------------------------------------------------- */
+/* Meters ------------------------------------------------------------- */
+
+function updateMeters (step) {
+  if (!step) return;
+  const p = studio.person;
+  $('mName').textContent = p.name;
+  $('mReserve').style.width = `${Math.max(0, step.reserve / p.reserve * 100)}%`;
+  $('mAbsorb').style.width = `${step.absorption * 100}%`;
+  $('mMask').hidden = !step.masked;
+}
+
+/* Frame loop --------------------------------------------------------- */
 
 let last = performance.now();
 
@@ -165,7 +398,8 @@ function frame (now) {
   const dt = Math.min(64, now - last);
   last = now;
   try {
-    if (mode === 'plan') {
+    if (!commission) { /* menus only */ }
+    else if (mode === 'plan') {
       studio.render();
     } else {
       const path = studio.result?.path ?? [];
@@ -173,47 +407,46 @@ function frame (now) {
         view.setCutaway(true);
         view.setFloorSurvey(true);
         view.setPlanCamera(orbit, 0.86, 1.9);
-        // The visit plays on a loop in the overview, so you watch her walk
-        // the room you just changed without having to ask for it.
-        walkT = (walkT + dt / Math.max(4000, path.length * 60)) % 1;
+        if (prefs.motion === 'on') {
+          walkT = (walkT + dt / Math.max(4000, path.length * 60)) % 1;
+        }
         const i = Math.min(path.length - 1, Math.floor(walkT * path.length));
         view.placeVisitor(path[i], path[Math.min(path.length - 1, i + 4)]);
+        updateMeters(path[i]);
       } else {
         view.setCutaway(false);
         view.setFloorSurvey(false);
         view.placeVisitor(null);
-        // Walk at the speed the simulation used, then hold at the end.
         walkT = Math.min(1, walkT + dt / Math.max(2600, path.length * 46));
         view.setWalkCamera(path, walkT);
         $('walkFill').style.width = `${walkT * 100}%`;
         $('walkbar').classList.toggle('bad', !studio.result?.ok);
         const idx = Math.floor(walkT * path.length);
-        const ev = (studio.result?.events ?? [])
-          .filter(e => e.index <= idx).slice(-1)[0];
+        updateMeters(path[Math.min(path.length - 1, idx)]);
+        const ev = (studio.result?.events ?? []).filter(e => e.index <= idx).slice(-1)[0];
         const fresh = ev && idx - ev.index < 26;
         $('interrupt3d').hidden = !fresh;
         if (fresh) {
           $('interrupt3dText').textContent = ev.text;
           $('interrupt3dNote').textContent = ev.recoverable
             ? 'There was somewhere to settle afterwards.'
-            : 'Nowhere to settle afterwards. She started again from nothing.';
+            : 'Nowhere to settle afterwards. Absorption starts again from nothing.';
         }
-        if (walkT >= 1) {
-          const v = studio.verdict();
-          $('walkNote').textContent = v ? v.headline : '';
-        } else {
-          $('walkNote').textContent = 'walking the route she actually took';
-        }
+        $('walkNote').textContent = walkT >= 1
+          ? (studio.verdict()?.headline ?? '')
+          : `walking the route ${studio.person.name} actually took`;
       }
       view.render();
     }
   } catch (err) {
     console.error('[room] frame failed, loop continuing:', err);
+    window.room.lastError = err;
   }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-window.room.view = view;
-window.room.setMode = setMode;
-window.room.replay = () => { walkT = 0; };
+/* Boot --------------------------------------------------------------- */
+
+setInGame(false);
+show('title');

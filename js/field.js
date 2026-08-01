@@ -162,7 +162,7 @@ function computeEscape (r, grid) {
     // marginal room over the edge, but on its own it must not end every trip
     // at the front door or the first thing every level teaches is the same
     // thing.
-    layers.escape.fill(0.62);
+    layers.escape.fill(0.5);
     return;
   }
 
@@ -179,9 +179,13 @@ function computeEscape (r, grid) {
     }
   }
 
-  const reach = Math.max(cols, rows);
+  // Scaled gently. Distance-to-help matters, but it grows as a background
+  // unease, not as a wall: at full punishment a big room spiked at its own
+  // front door before crowding — the thing the person actually struggles
+  // with — ever had a chance to matter.
+  const reach = Math.max(cols, rows) * 1.5;
   for (let i = 0; i < dist.length; i++) {
-    layers.escape[i] = Math.min(1, (dist[i] === Infinity ? reach : dist[i]) / reach);
+    layers.escape[i] = Math.min(0.85, (dist[i] === Infinity ? reach : dist[i]) / reach);
   }
 }
 

@@ -1,9 +1,12 @@
 /**
  * Rooms.
  *
- * Each starts genuinely unusable and can be made workable within budget. They
- * are furnished densely on purpose: a room with six objects in it reads as a
- * diagram, and a room with thirty reads as somewhere people go.
+ * Four buildings, referenced by the campaign. Each is furnished densely on
+ * purpose: a room with six objects reads as a diagram, a room with thirty
+ * reads as somewhere people go. Several commissions reuse a building with
+ * different people and different owner rules, because "the same café, but for
+ * two people at once" is a genuinely different puzzle and much cheaper than a
+ * new room.
  */
 
 import { room, wall, thing } from './room.js';
@@ -17,7 +20,7 @@ function box (w, h, material) {
   ];
 }
 
-/** Tables with chairs round them, the way a café actually is. */
+/** A table with chairs round it, the way a real one is. */
 function table (x, y, chairs = 2) {
   const out = [thing('seat', x, y)];
   for (let i = 0; i < chairs; i++) {
@@ -27,18 +30,16 @@ function table (x, y, chairs = 2) {
   return out;
 }
 
+/* ------------------------------------------------------------------ */
+
 function cafe () {
   const w = 920, h = 700;
   const r = room({
     w, h,
-    walls: [
-      ...box(w, h, 'tile'),
-      wall(560, 0, 560, 200, 'glass')
-    ],
+    walls: [...box(w, h, 'tile'), wall(560, 0, 560, 200, 'glass')],
     door: { x: 70, y: 630 },
     goal: { x: 700, y: 130 },
-    budget: 5,
-    person: 'mara'
+    budget: 5
   });
 
   r.things = [
@@ -47,7 +48,6 @@ function cafe () {
     thing('window', 910, 320, { movable: false }),
     thing('window', 910, 520, { movable: false }),
 
-    // The problem
     thing('grinder', 640, 220),
     thing('machine', 780, 165, { movable: false }),
     thing('speaker', 200, 90),
@@ -55,7 +55,6 @@ function cafe () {
     thing('fluorescent', 380, 240),
     thing('fluorescent', 380, 520),
 
-    // Furniture and clutter. None of it is a puzzle piece; it is a café.
     ...table(230, 430, 2),
     ...table(430, 560, 3),
     ...table(250, 210, 2),
@@ -77,14 +76,10 @@ function library () {
   const w = 860, h = 640;
   const r = room({
     w, h,
-    walls: [
-      ...box(w, h, 'plaster'),
-      wall(0, 320, 380, 320, 'wood')
-    ],
+    walls: [...box(w, h, 'plaster'), wall(0, 320, 380, 320, 'wood')],
     door: { x: 60, y: 580 },
     goal: { x: 720, y: 120 },
-    budget: 4,
-    person: 'ollie'
+    budget: 4
   });
 
   r.things = [
@@ -92,11 +87,9 @@ function library () {
     thing('counter', 720, 120, { movable: false }),
     thing('window', 850, 200, { movable: false }),
 
-    // Ollie is undone by flicker and glare, so this room is a light problem.
     thing('fluorescent', 260, 160),
     thing('fluorescent', 560, 200),
-    thing('fluorescent', 560, 480),
-    thing('fluorescent', 260, 500),
+    thing('fluorescent', 300, 480),
     thing('speaker', 700, 560),
 
     ...table(200, 460, 2),
@@ -110,23 +103,96 @@ function library () {
     thing('bin', 800, 600)
   ];
 
-  r.tray = ['lamp', 'screen', 'booth', 'soft', 'panel', 'rug'];
+  r.tray = ['diffuser', 'lamp', 'screen', 'booth', 'soft', 'panel'];
   return r;
 }
 
-export const ROOMS = [
-  {
-    id: 'cafe',
-    title: 'The Tuesday Café',
-    line: 'Tiled, bright, and there is a grinder behind the counter.',
-    build: cafe,
-    person: 'mara'
-  },
-  {
-    id: 'library',
-    title: 'The Reading Room',
-    line: 'Quiet enough. Lit like an operating theatre.',
-    build: library,
-    person: 'ollie'
+/**
+ * The clinic waiting room. The one you cannot choose to skip.
+ *
+ * The refuge already exists here, badly placed, so the puzzle is crowd and
+ * the television rather than buying a quiet corner: chairs are movable, the
+ * TV is bolted to the wall, and the receptionist does not have the remote.
+ */
+function clinic () {
+  const w = 780, h = 580;
+  const r = room({
+    w, h,
+    walls: [...box(w, h, 'plaster'), wall(520, 580, 520, 420, 'glass')],
+    door: { x: 70, y: 510 },
+    goal: { x: 650, y: 110 },
+    budget: 4
+  });
+
+  const chairs = [];
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 3; j++) {
+      chairs.push(thing('chair', 250 + i * 70, 260 + j * 70));
+    }
   }
-];
+
+  r.things = [
+    thing('door', 70, 510, { movable: false }),
+    thing('counter', 650, 110, { movable: false }),
+    thing('window', 770, 300, { movable: false }),
+
+    thing('tv', 390, 40, { movable: false }),
+    thing('fluorescent', 250, 180),
+    thing('fluorescent', 550, 340),
+
+    ...chairs,
+    thing('seat', 640, 470),
+    thing('booth', 690, 520),           // free, pre-placed, in the wrong spot
+    thing('shelf', 40, 150, { movable: false }),
+    thing('menu', 560, 40, { movable: false }),
+    thing('bin', 730, 550),
+    thing('pot', 60, 60),
+    thing('pot', 720, 60)
+  ];
+
+  r.tray = ['screen', 'panel', 'soft', 'rug', 'lamp'];
+  return r;
+}
+
+/** The community hall. Big, brick, echoing, and booked for a coffee morning. */
+function hall () {
+  const w = 1040, h = 720;
+  const r = room({
+    w, h,
+    walls: [...box(w, h, 'brick'), wall(1040, 200, 1040, 520, 'glass')],
+    door: { x: 80, y: 650 },
+    goal: { x: 880, y: 140 },
+    budget: 6
+  });
+
+  r.things = [
+    thing('door', 80, 650, { movable: false }),
+    thing('counter', 880, 140, { movable: false }),
+    thing('machine', 970, 190, { movable: false }),
+    thing('window', 1030, 360, { movable: false }),
+
+    thing('speaker', 160, 100),
+    thing('speaker', 900, 660),
+    thing('fluorescent', 350, 250),
+    thing('fluorescent', 700, 250),
+    thing('fluorescent', 350, 520),
+    thing('fluorescent', 700, 520),
+
+    ...table(280, 420, 3),
+    ...table(520, 560, 3),
+    ...table(500, 330, 2),
+    ...table(750, 460, 3),
+    ...table(240, 200, 2),
+    thing('menu', 950, 40, { movable: false }),
+    thing('shelf', 40, 300, { movable: false }),
+    thing('bin', 140, 680),
+    thing('pot', 1000, 620),
+    thing('pot', 60, 60),
+    thing('pot', 540, 60)
+  ];
+
+  r.tray = ['panel', 'diffuser', 'screen', 'booth', 'soft', 'rug', 'lamp'];
+  return r;
+}
+
+export const BUILDERS = { cafe, library, clinic, hall };

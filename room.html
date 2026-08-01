@@ -3,19 +3,48 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Room — prototype</title>
+<title>Room to Breathe</title>
+<meta name="description" content="A game about rooms, and who they are built for.">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/room.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🚪</text></svg>">
 </head>
 <body>
 <div id="app">
   <canvas id="stage" aria-label="Room plan. Drag objects to move them."></canvas>
-  <canvas id="stage3d" class="pixel" hidden aria-label="The room in three dimensions."></canvas>
+  <canvas id="stage3d" hidden aria-label="The room in three dimensions."></canvas>
 
-  <div class="viewswitch">
+  <!-- ------------------------------------------------------------ -->
+  <!-- In-game interface                                             -->
+  <!-- ------------------------------------------------------------ -->
+  <div class="viewswitch" id="viewswitch" hidden>
     <button class="vbtn on" id="viewPlan">Plan</button>
     <button class="vbtn" id="viewRoom">Look</button>
     <button class="vbtn" id="viewWalk">Walk it</button>
+  </div>
+
+  <header class="hud-top room-top" id="gamehud" hidden>
+    <div class="hud-level">
+      <span class="hud-count" id="roomCount"></span>
+      <h1 id="roomTitle"></h1>
+      <div class="ptabs" id="personTabs"></div>
+      <p class="person-blurb" id="personBlurb"></p>
+    </div>
+    <div class="hud-right">
+      <div class="gauge">
+        <span class="gauge-label">goodwill</span>
+        <span class="gauge-read" id="budgetRead">–</span>
+      </div>
+      <button class="icon-btn" id="exitBtn">board</button>
+    </div>
+  </header>
+
+  <!-- Live state of whoever is walking -->
+  <div class="meters" id="meters" hidden>
+    <span class="m-name" id="mName"></span>
+    <div class="m-bar"><i>reserve</i><div class="m-track"><div class="m-fill" id="mReserve"></div></div></div>
+    <div class="m-bar"><i>absorption</i><div class="m-track"><div class="m-fill teal" id="mAbsorb"></div></div></div>
+    <span class="m-chip" id="mMask" hidden>holding it together</span>
   </div>
 
   <div class="interrupt3d" id="interrupt3d" hidden>
@@ -28,34 +57,200 @@
     <p id="walkNote"></p>
   </div>
 
-  <header class="hud-top room-top">
-    <div class="hud-level">
-      <span class="hud-count" id="roomCount"></span>
-      <h1 id="roomTitle"></h1>
-      <p id="roomLine"></p>
-      <p class="person"><b id="personName"></b><span id="personBlurb"></span></p>
-    </div>
-    <div class="hud-right">
-      <div class="gauge">
-        <span class="gauge-label">budget</span>
-        <span class="gauge-read" id="budgetRead">–</span>
-      </div>
-    </div>
-  </header>
-
-  <!-- What the visitor experienced -->
-  <section class="verdict" id="verdict">
+  <section class="verdict" id="verdict" hidden>
     <p class="verdict-head" id="verdictHead"></p>
     <p class="verdict-detail" id="verdictDetail"></p>
   </section>
 
-  <!-- Things you can add -->
-  <aside class="tray" id="tray" aria-label="Things you can place"></aside>
+  <button class="btn signoff" id="signoffBtn" hidden>Sign it off</button>
 
-  <!-- Which layer you are looking at -->
-  <nav class="layers" id="layers" aria-label="Sensory layer"></nav>
-
+  <aside class="tray" id="tray" hidden aria-label="Things you can place"></aside>
+  <nav class="layers" id="layers" hidden aria-label="Sensory layer"></nav>
   <p class="probe" id="probe"></p>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Title                                                         -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="title" class="overlay">
+    <div class="title-inner">
+      <p class="eyebrow">an access survey, played</p>
+      <h1 class="wordmark rtb">ROOM TO<br>BREATHE</h1>
+      <p class="strap">A game about rooms, and who they are built for.</p>
+      <div class="title-actions">
+        <button class="btn btn-big" id="playBtn">Commissions</button>
+        <button class="btn btn-quiet" id="helpBtn">How to play</button>
+        <button class="btn btn-quiet" id="aboutBtn">About</button>
+        <button class="btn btn-quiet" id="settingsBtn">Settings</button>
+      </div>
+      <p class="credit">Built on monotropism, the account of autistic attention put
+      forward by Dinah Murray, Mike Lesser and Wenn Lawson. One rule runs the whole
+      simulation: comfort does not average. One bad spot on the route is the visit.</p>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Commissions board                                             -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="board" class="overlay" hidden>
+    <div class="calib-inner">
+      <h2>Commissions</h2>
+      <p class="calib-intro">Owners with rooms, rooms with problems. Finish one and
+      word gets round. Your budget on each job is the owner’s goodwill — spend it well.</p>
+      <div class="board-list" id="boardList"></div>
+      <div class="calib-actions"><button class="btn btn-quiet" id="boardBack">Back</button></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Commission brief                                              -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="brief" class="overlay" hidden>
+    <div class="calib-inner">
+      <p class="eyebrow" id="briefOwner"></p>
+      <h2 id="briefTitle"></h2>
+      <p class="brief-text" id="briefText"></p>
+      <div id="briefPeople"></div>
+      <div id="briefRules"></div>
+      <div class="calib-actions">
+        <button class="btn btn-big" id="briefGo">Start the survey</button>
+        <button class="btn btn-quiet" id="briefBack">Back</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Debrief                                                       -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="debrief" class="overlay" hidden>
+    <div class="reflect-inner">
+      <p class="eyebrow">signed off</p>
+      <h2 id="debriefTitle"></h2>
+      <p class="stars" id="debriefStars"></p>
+      <div class="reflect-grid" id="debriefGrid"></div>
+      <p class="reflect-note" id="debriefNote"></p>
+      <div class="calib-actions">
+        <button class="btn btn-big" id="debriefNext">Next commission</button>
+        <button class="btn btn-quiet" id="debriefBoard">Board</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Ending                                                        -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="ending" class="overlay" hidden>
+    <div class="reflect-inner">
+      <p class="eyebrow">the last signature</p>
+      <h2>Three people, one morning, one room.</h2>
+      <p class="reflect-note">Mara’s problem was never Ollie’s, and Ollie’s was never
+      Jun’s, and the room never asked any of them to be different — because you
+      changed the room instead. That is the whole argument of this game, and it is
+      not a special measure. It is just what design is for.</p>
+      <p class="reflect-note" id="endingStars"></p>
+      <p class="reflect-note">This game will not shorten a waiting list. It is an
+      argument you can hold: attention that runs deep is not a fault to train out,
+      and the cost of a bad room lands on whoever is quietest about it. If a doorway,
+      a speaker, or a bank of fluorescent tube looks different to you now — it worked.</p>
+      <div class="calib-actions"><button class="btn btn-big" id="endingBoard">Back to the board</button></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- How to play                                                   -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="help" class="overlay" hidden>
+    <div class="calib-inner">
+      <h2>How to play</h2>
+      <ol class="howto">
+        <li><b>Read the brief.</b> Who is coming, and what the owner will not bend on.</li>
+        <li><b>Survey the room.</b> The floor shows the load; the list on the right
+        splits it into channels — noise, flicker, glare, crowding, retreat. Hover
+        anywhere to read what is worst at that spot.</li>
+        <li><b>Change the room.</b> Drag anything that moves. Buy from the tray and
+        click where it goes. Delete removes a bought item and refunds it. The budget
+        is the owner’s goodwill.</li>
+        <li><b>Watch them walk it.</b> Look shows the visit from above; Walk it puts
+        you at their eye height, on the exact route they took. Interruptions land
+        where they landed. The bars show reserve and absorption as they go.</li>
+        <li><b>Everyone must make it, and the owner’s rules must hold.</b> One person
+        comfortable is not enough, and comfort does not average: one bad spot on the
+        route is the visit.</li>
+        <li><b>Sign it off.</b> Then the next room.</li>
+      </ol>
+      <div class="calib-actions"><button class="btn btn-quiet" id="helpBack">Back</button></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- About and resources                                           -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="about" class="overlay" hidden>
+    <div class="calib-inner">
+      <h2>What this is built on</h2>
+      <div id="aboutSources"></div>
+
+      <h3 class="about-sub">The people in it</h3>
+      <p class="calib-intro">Mara, Ollie and Jun are written characters, informed by
+      the sources above. They are fiction clearly framed as fiction: nobody is quoted,
+      nobody is a diagnosis, and none of their lines are testimony. The slot for real
+      statements from autistic people, collected with a charity partner and credited,
+      remains built and remains empty until they are real.</p>
+
+      <h3 class="about-sub">What the game does and does not do</h3>
+      <p class="calib-intro">It will not shorten anyone’s waiting list. What it does is
+      put the person who arranges rooms inside a model where depth of attention is the
+      strength, interruption is the cost, and the environment — never the person —
+      is the thing that changes. It is also a game an autistic player can actually sit
+      with: no timers, no fail state, nothing missable, no sound.</p>
+
+      <h3 class="about-sub">Places to learn more</h3>
+      <p class="calib-intro">Independent organisations, not affiliated with this game
+      and not endorsing it.</p>
+      <ul class="resources">
+        <li><b>Monotropism</b> — monotropism.org, the theory community, including
+        writing by and for autistic people.</li>
+        <li><b>Autistic Self Advocacy Network</b> — autisticadvocacy.org. Nothing
+        about us without us.</li>
+        <li><b>National Autistic Society</b> — autism.org.uk, including practical
+        guidance on sensory-friendly environments.</li>
+        <li><b>AASPIRE</b> — aaspire.org, healthcare access research done in
+        partnership with autistic adults.</li>
+      </ul>
+      <div class="calib-actions"><button class="btn btn-quiet" id="aboutBack">Back</button></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Settings                                                      -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="settings" class="overlay" hidden>
+    <div class="calib-inner">
+      <h2>Settings</h2>
+      <fieldset class="calib-group">
+        <legend>Finish</legend>
+        <div class="choices" role="radiogroup" id="styleChoices">
+          <button class="choice" data-v="crisp"><b>Low poly</b><span>Full resolution, clean edges. The default.</span></button>
+          <button class="choice" data-v="pixel"><b>Pixel</b><span>216 lines and dither, if that is your thing.</span></button>
+        </div>
+      </fieldset>
+      <fieldset class="calib-group">
+        <legend>Motion</legend>
+        <div class="choices" role="radiogroup" id="motionChoices">
+          <button class="choice" data-v="on"><b>Walking loop</b><span>The visitor walks the room on repeat in Look.</span></button>
+          <button class="choice" data-v="off"><b>Still</b><span>Nothing moves unless you press Walk it.</span></button>
+        </div>
+      </fieldset>
+      <fieldset class="calib-group">
+        <legend>Text</legend>
+        <div class="choices" role="radiogroup" id="textChoices">
+          <button class="choice" data-v="normal"><b>Normal</b><span>As designed.</span></button>
+          <button class="choice" data-v="large"><b>Larger</b><span>Everything up a step.</span></button>
+        </div>
+      </fieldset>
+      <div class="calib-actions"><button class="btn btn-quiet" id="settingsBack">Back</button></div>
+    </div>
+  </section>
+
   <p id="live" class="sr-only" aria-live="polite"></p>
 </div>
 <script type="module" src="js/room-main.js"></script>

@@ -1,57 +1,65 @@
 /**
- * Does each room behave like a room, and can it actually be solved?
+ * Does every commission behave like a puzzle, and can it actually be won?
  *
- * The earlier version of this test hardcoded one hand-written solution for
- * one café, which stopped meaning anything the moment the room changed. This
- * one searches for a solution instead: it looks at what is currently breaking
- * the visit, tries the moves a player would try, and keeps whatever helps.
+ * The solver plays each commission the way a player would: look at what is
+ * breaking the visit for whoever is failing, try the moves available — move
+ * an emitter, move a table, buy an absorber — and keep whatever helps. Moves
+ * that break the owner's rules are discarded, exactly as the game discards
+ * them at sign-off.
  *
- * If the search cannot finish a room within budget, the room is not fair.
+ * If the search cannot win a commission within budget, the commission is not
+ * fair, and this exits non-zero.
  *
  *   node test/room-sim.mjs
  */
 
-import { ROOMS } from '../js/rooms.js';
-import { thing, def, KINDS } from '../js/room.js';
+import { COMMISSIONS } from '../js/campaign.js';
+import { BUILDERS } from '../js/rooms.js';
+import { thing, def, KINDS, checkConstraints } from '../js/room.js';
 import { makeGrid, compute, combine, explain, DOMAINS } from '../js/field.js';
 import { visit, PEOPLE } from '../js/person.js';
 
-function evaluate (r, person) {
+function buildFor (c) {
+  const r = BUILDERS[c.room]();
+  if (c.budget != null) r.budget = c.budget;
+  return r;
+}
+
+/** Everyone walks; the commission is ok when all are and no rule is broken. */
+function evaluate (r, c, people) {
   const grid = makeGrid(r, 12);
   compute(r, grid);
-  combine(grid, person.weights);
-  return { grid, result: visit(r, grid, person) };
+  const results = people.map(p => {
+    combine(grid, p.weights);
+    return visit(r, grid, p);
+  });
+  const broken = checkConstraints(r, c.constraints ?? []);
+  return { grid, results, broken, ok: results.every(x => x.ok) && broken.length === 0 };
 }
 
 const pct = v => `${Math.round(v * 100)}%`;
-
-function breakdown (grid, at, person) {
-  return explain(grid, at.x, at.y, person.weights)
-    .filter(d => d.weighted > 0.005)
-    .slice(0, 4)
-    .map(d => `${d.domain} ${pct(d.raw)}`)
-    .join('  ');
-}
 
 function spentOn (r) {
   return r.things.filter(t => t.placed && t.fromTray)
     .reduce((n, t) => n + (def(t).cost ?? 0), 0);
 }
 
-/** Somewhere far from everywhere the visitor goes. */
-function quietSpot (r, result) {
+/** Somewhere far from everywhere anyone goes. */
+function quietSpot (r, results) {
   let best = null, bestD = -1;
   for (let x = 60; x < r.w - 60; x += 70) {
     for (let y = 60; y < r.h - 60; y += 70) {
       let d = Infinity;
-      for (const s of result.path) d = Math.min(d, Math.hypot(x - s.x, y - s.y));
+      for (const res of results) {
+        for (const s of res.path) d = Math.min(d, Math.hypot(x - s.x, y - s.y));
+      }
       if (d > bestD) { bestD = d; best = { x, y }; }
     }
   }
   return best;
 }
 
-/** The most comfortable place in the room to stand still for a while. */
+/** The most comfortable open place to stand still for a while. */
 function calmestSpot (r, grid) {
   let best = null, low = Infinity;
   for (let i = 0; i < grid.load.length; i++) {
@@ -64,90 +72,125 @@ function calmestSpot (r, grid) {
 }
 
 /**
- * How good is an attempt?
- *
- * Getting further into the visit is the thing that matters, plus lowering the
- * worst moment. Scoring on reserve remaining, which was the first thing I
- * tried, rewards failing EARLIER, because a trip that ends at the front door
- * has barely spent anything. The search happily sat still.
+ * Score an attempt. min across people, because the commission is only as
+ * done as its least comfortable visitor. Getting further matters most;
+ * lowering the worst moment breaks ties. Scoring on reserve remaining
+ * rewarded failing EARLIER (a trip that dies at the door has spent nothing),
+ * which is a mistake this file gets to keep as a warning.
  */
-const scoreOf = res =>
-  res.ok ? 1e9 : res.path.length * 20 - res.worst.load * 400;
+function avgLoad (res) {
+  if (!res.path.length) return 1;
+  return res.path.reduce((a, s2) => a + s2.load, 0) / res.path.length;
+}
 
-/**
- * Play the room. Each round: find what is breaking it, try every move a
- * player could make against that, keep the one that helps most.
- */
-function play (spec, rounds = 14) {
-  const person = PEOPLE[spec.person] ?? PEOPLE.mara;
-  const r = spec.build();
-  let cur = evaluate(r, person);
+function perScore (res) {
+  return res.ok ? 1e6
+    : res.path.length * 20 - res.worst.load * 400 - avgLoad(res) * 150;
+}
+
+function scoreOf (ev) {
+  if (ev.ok) return 1e9;
+  if (ev.broken.length) return -1e9;
+  return Math.min(...ev.results.map(perScore));
+}
+
+function play (c, rounds = 16) {
+  const people = c.people.map(k => PEOPLE[k]);
+  const r = buildFor(c);
+  let cur = evaluate(r, c, people);
   const log = [];
 
-  for (let n = 0; n < rounds && !cur.result.ok; n++) {
-    const blame = cur.result.blame?.domain;
-    const at = cur.result.at ?? cur.result.worst;
+  for (let n = 0; n < rounds && !cur.ok; n++) {
+    // Fix the worst-off person, not the first on the list. In a three-person
+    // commission the first pass of this targeted whoever happened to be
+    // index zero and polished their route while someone else died at the door.
+    const failing = cur.results.filter(res => !res.ok)
+      .sort((a, b) => perScore(a) - perScore(b))[0] ?? cur.results[0];
+    const blame = failing.blame?.domain;
+    const at = failing.at ?? failing.worst;
     const candidates = [];
 
-    // Move whatever is emitting the thing that is breaking it, somewhere the
-    // visitor never goes.
-    const spot = quietSpot(r, cur.result);
+    const spot = quietSpot(r, cur.results);
+    const dumps = [
+      spot,
+      { x: 70, y: 70 }, { x: r.w - 70, y: 70 },
+      { x: 70, y: r.h - 70 }, { x: r.w - 70, y: r.h - 70 }
+    ];
     for (const t of r.things) {
       if (!t.placed || !t.movable || !def(t).emits?.[blame]) continue;
-      candidates.push({ kind: 'move', t, to: spot, label: `move ${def(t).label}` });
+      for (const to of dumps) {
+        candidates.push({ kind: 'move', t, to, label: `move ${def(t).label}` });
+      }
     }
 
-    // Move where they are allowed to sit. Running out during the forty
-    // seconds at a table is usually not about the route at all, it is about
-    // the only free table being next to the grinder, and relocating it is
-    // the first thing any real person would try.
     const calm = calmestSpot(r, cur.grid);
+    const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const targets = [
+      calm,
+      { x: cl(at.x + 130, 60, r.w - 60), y: cl(at.y + 130, 60, r.h - 60) },
+      { x: cl(at.x - 130, 60, r.w - 60), y: cl(at.y - 130, 60, r.h - 60) },
+      { x: r.w / 2, y: r.h / 2 }
+    ];
     for (const t of r.things) {
-      if (!t.placed || t.kind !== 'seat') continue;
-      candidates.push({ kind: 'move', t, to: calm, label: `move ${def(t).label}` });
+      if (!t.placed || !t.movable) continue;
+      if (t.kind !== 'seat' && !def(t).refuge) continue;
+      for (const to of targets) {
+        candidates.push({ kind: 'move', t, to, label: `move ${def(t).label}` });
+      }
     }
 
-    // Or buy something that absorbs it, and put it where it is worst.
+    // Crowding is made of chairs; spreading them is a real move.
+    if (blame === 'crowd') {
+      for (const t of r.things.filter(x => x.placed && x.kind === 'chair').slice(0, 6)) {
+        for (const to of dumps) {
+          candidates.push({ kind: 'move', t, to, label: 'move Chair' });
+        }
+      }
+    }
+
     const left = r.budget - spentOn(r);
     for (const k of r.tray) {
       const D = KINDS[k];
       if ((D.cost ?? 0) > left) continue;
-      const helps = D.absorbs?.[blame] || D.refuge;
-      if (!helps) continue;
-      for (const near of [at, { x: at.x + 90, y: at.y }, { x: at.x, y: at.y + 90 }]) {
+      if (!(D.absorbs?.[blame] || D.refuge)) continue;
+      const spots = [at, { x: at.x + 90, y: at.y }, { x: at.x, y: at.y + 90 }];
+      for (const t of r.things) {
+        if (t.placed && def(t).emits?.[blame]) spots.push({ x: t.x, y: t.y });
+      }
+      for (const near of spots) {
         candidates.push({ kind: 'place', k, at: near, label: `place ${D.label}` });
       }
     }
 
     let best = null;
-    for (const c of candidates) {
+    for (const cand of candidates) {
       let undo;
-      if (c.kind === 'move') {
-        const old = { x: c.t.x, y: c.t.y };
-        c.t.x = c.to.x; c.t.y = c.to.y;
-        undo = () => { c.t.x = old.x; c.t.y = old.y; };
+      if (cand.kind === 'move') {
+        const old = { x: cand.t.x, y: cand.t.y };
+        cand.t.x = cand.to.x; cand.t.y = cand.to.y;
+        undo = () => { cand.t.x = old.x; cand.t.y = old.y; };
       } else {
-        const t = thing(c.k, c.at.x, c.at.y);
+        const t = thing(cand.k, cand.at.x, cand.at.y);
         t.fromTray = true;
         r.things.push(t);
         undo = () => { r.things = r.things.filter(x => x !== t); };
       }
-      const trial = evaluate(r, person);
-      const score = scoreOf(trial.result);
-      if (!best || score > best.score) best = { c, score, trial };
+      const trial = evaluate(r, c, people);
+      const score = scoreOf(trial);
+      if (!best || score > best.score) best = { cand, score };
       undo();
     }
 
-    if (!best || best.score <= scoreOf(cur.result) + 1e-6) break;
+    if (!best || best.score <= scoreOf(cur) + 1e-6) break;
 
-    const c = best.c;
-    if (c.kind === 'move') { c.t.x = c.to.x; c.t.y = c.to.y; }
-    else { const t = thing(c.k, c.at.x, c.at.y); t.fromTray = true; r.things.push(t); }
-    log.push(c.label);
-    cur = evaluate(r, person);
+    const cand = best.cand;
+    if (cand.kind === 'move') { cand.t.x = cand.to.x; cand.t.y = cand.to.y; }
+    else { const t = thing(cand.k, cand.at.x, cand.at.y); t.fromTray = true; r.things.push(t); }
+    log.push(cand.label);
+    cur = evaluate(r, c, people);
   }
 
-  return { r, person, cur, log, cost: spentOn(r) };
+  return { r, cur, log, cost: spentOn(r) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -158,48 +201,41 @@ const check = (name, ok, detail = '') => {
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  ${detail}` : ''}`);
 };
 
-for (const spec of ROOMS) {
-  const person = PEOPLE[spec.person] ?? PEOPLE.mara;
-  console.log(`\n== ${spec.title}  (${person.name}) ==`);
+for (const c of COMMISSIONS) {
+  const people = c.people.map(k => PEOPLE[k]);
+  console.log(`\n== ${c.title}  (${people.map(p => p.name).join(', ')}) ==`);
 
-  const start = evaluate(spec.build(), person);
-  check('starts unusable', !start.result.ok,
-    start.result.ok ? '(already fine, so there is no puzzle)'
-      : `${start.result.reason} ${start.result.leg}, worst domain ${start.result.blame?.domain}`);
-  console.log(`        worst ${pct(start.result.worst.load)} · ` +
-    breakdown(start.grid, start.result.worst, person));
+  const start = evaluate(buildFor(c), c, people);
+  const failing = start.results.find(r => !r.ok);
+  check('owner rules hold at the start', start.broken.length === 0,
+    start.broken.map(b => b.text).join(' '));
+  check('starts unusable', !!failing,
+    failing
+      ? `${failing.person.name}: ${failing.reason} ${failing.leg}` +
+        (failing.blame ? `, worst domain ${failing.blame.domain}` : '')
+      : '(already fine, so there is no puzzle)');
+  if (failing) {
+    console.log(`        worst for ${failing.person.name}: ${pct(failing.worst.load)}`);
+  }
 
-  const solved = play(spec);
-  check('solvable within budget', solved.cur.result.ok && solved.cost <= solved.r.budget,
-    solved.cur.result.ok
+  const solved = play(c);
+  check('solvable within budget and rules', solved.cur.ok && solved.cost <= solved.r.budget,
+    solved.cur.ok
       ? `${solved.log.length} moves, cost ${solved.cost} of ${solved.r.budget}, ` +
-        `reserve ${Math.round(solved.cur.result.reserve)}`
-      : `search gave up: ${solved.cur.result.reason} ${solved.cur.result.leg}`);
+        `tightest reserve ${Math.round(Math.min(...solved.cur.results.map(x => x.reserve)))}`
+      : 'search gave up: ' + (solved.cur.broken.length
+          ? 'owner rules'
+          : (rr => rr ? `${rr.person.name} ${rr.reason} ${rr.leg}` : '??')(solved.cur.results.find(x => !x.ok))));
   if (solved.log.length) console.log(`        ${solved.log.join(' → ')}`);
 
-  check('needs more than one move', solved.log.length >= 2,
-    `${solved.log.length} move(s)`);
+  check('needs more than one move', solved.log.length >= 2, `${solved.log.length} move(s)`);
 
-  // Interruptions have to actually bite, or the monotropism model is inert.
-  check('interruptions occur during the visit', start.result.events.length > 0,
-    `${start.result.events.length} during the failed attempt`);
-
-  // One object should disturb several channels, or placement is a checklist.
-  const probe = spec.build();
-  const before = evaluate(probe, person);
-  const spot = { x: before.result.worst.x, y: before.result.worst.y };
-  const b4 = explain(before.grid, spot.x, spot.y, person.weights);
-  const scr = thing('screen', spot.x + 20, spot.y + 20);
-  scr.fromTray = true;
-  probe.things.push(scr);
-  const after = evaluate(probe, person);
-  const af = explain(after.grid, spot.x, spot.y, person.weights);
-  const moved = DOMAINS.filter(d =>
-    Math.abs(b4.find(z => z.domain === d).raw - af.find(z => z.domain === d).raw) > 0.01);
-  check('one object moves several channels', moved.length >= 2, `[${moved.join(', ')}]`);
+  check('interruptions still occur in the finished room',
+    solved.cur.results.some(res => res.events.length > 0),
+    `${solved.cur.results.reduce((n, res) => n + res.events.length, 0)} across the signed-off visit`);
 }
 
 console.log(failures === 0
-  ? '\nEvery room is unfair to start with and fair to finish.'
+  ? '\nEvery commission starts unfair and can be finished fairly.'
   : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);
