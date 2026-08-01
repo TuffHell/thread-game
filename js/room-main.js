@@ -156,8 +156,21 @@ function setInGame (on) {
     }
     $('stage').hidden = true;
     gl.hidden = true;
+    $('grade').hidden = true;
   }
 }
+
+/* Painted backdrops --------------------------------------------------- */
+
+function tryBackdrop (imgId, src) {
+  const img = $(imgId);
+  if (!img) return;
+  img.hidden = true;
+  img.onload = () => { img.hidden = false; };
+  img.onerror = () => { img.hidden = true; };
+  img.src = src;
+}
+tryBackdrop('titleBg', 'assets/title.png');
 
 /* Title ------------------------------------------------------------- */
 
@@ -203,6 +216,7 @@ function openBrief (c) {
     ? `<div class="rules"><b>The owner’s rules</b>` +
       c.constraints.map(r => `<p>${r.text}</p>`).join('') + '</div>'
     : '';
+  tryBackdrop('briefBg', `assets/room-${c.room}.png`);
   show('brief');
 }
 
@@ -321,6 +335,7 @@ function setMode (m) {
   mode = m;
   $('stage').hidden = m !== 'plan';
   gl.hidden = m === 'plan';
+  $('grade').hidden = m === 'plan';
   $('walkbar').hidden = m !== 'walk';
   $('meters').hidden = m === 'plan';
   $('tray').hidden = m !== 'plan';

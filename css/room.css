@@ -494,3 +494,31 @@
 
 /* Larger text ------------------------------------------------------ */
 html.text-large { font-size: 118%; }
+
+/* ---------------------------------------------------------------- */
+/* Atmosphere                                                        */
+/* ---------------------------------------------------------------- */
+
+/* Warm vignette over the 3D views. The reels get their cosiness from
+   light falling off toward the edges; this is that, for free. */
+.grade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background:
+    radial-gradient(ellipse at 50% 40%, transparent 52%, rgba(38, 22, 8, 0.38) 100%),
+    linear-gradient(rgba(255, 178, 96, 0.05), rgba(20, 12, 6, 0.12));
+}
+
+/* Painted backdrops behind overlay text, when assets exist. */
+.ovbg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  opacity: 0.5;
+}
+.overlay > :not(.ovbg) { position: relative; z-index: 1; }

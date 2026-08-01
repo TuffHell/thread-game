@@ -13,6 +13,7 @@
 <div id="app">
   <canvas id="stage" aria-label="Room plan. Drag objects to move them."></canvas>
   <canvas id="stage3d" hidden aria-label="The room in three dimensions."></canvas>
+  <div id="grade" class="grade" hidden></div>
 
   <!-- ------------------------------------------------------------ -->
   <!-- In-game interface                                             -->
@@ -72,6 +73,7 @@
   <!-- Title                                                         -->
   <!-- ------------------------------------------------------------ -->
   <section id="title" class="overlay">
+    <img id="titleBg" class="ovbg" alt="" hidden>
     <div class="title-inner">
       <p class="eyebrow">an access survey, played</p>
       <h1 class="wordmark rtb">ROOM TO<br>BREATHE</h1>
@@ -105,6 +107,7 @@
   <!-- Commission brief                                              -->
   <!-- ------------------------------------------------------------ -->
   <section id="brief" class="overlay" hidden>
+    <img id="briefBg" class="ovbg" alt="" hidden>
     <div class="calib-inner">
       <p class="eyebrow" id="briefOwner"></p>
       <h2 id="briefTitle"></h2>

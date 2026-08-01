@@ -202,6 +202,26 @@ export class View3D {
     this.refreshLights();
   }
 
+  /**
+   * A soft radial glow texture, drawn once. Billboarded around every warm
+   * light, it is most of what makes the tavern-reel look read as cosy: the
+   * lamp is not just lighting the room, you can see the light itself.
+   */
+  glowTexture () {
+    if (this._glowTex) return this._glowTex;
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+    grad.addColorStop(0, 'rgba(255, 214, 150, 0.85)');
+    grad.addColorStop(0.4, 'rgba(255, 190, 110, 0.28)');
+    grad.addColorStop(1, 'rgba(255, 180, 90, 0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    this._glowTex = new THREE.CanvasTexture(c);
+    return this._glowTex;
+  }
+
   /** Fixtures glow. Rebuilt whenever a light source moves. */
   refreshLights () {
     for (const l of this.scene.children.filter(c => c.userData.fixture)) this.scene.remove(l);
@@ -215,7 +235,56 @@ export class View3D {
       l.position.set(t.x, WALL_H - 40, t.y);
       l.userData.fixture = true;
       this.scene.add(l);
+
+      // The visible bloom around the fixture.
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: this.glowTexture(),
+        color: warm ? 0xffd9a0 : 0xeaf2ff,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        opacity: warm ? 0.9 : 0.5
+      }));
+      const y = t.kind === 'lamp' ? 135 : WALL_H - 40;
+      sp.position.set(t.x, y, t.y);
+      sp.scale.setScalar(warm ? 150 : 110);
+      sp.userData.fixture = true;
+      this.scene.add(sp);
     }
+  }
+
+  /**
+   * Wood-plank floor, drawn to a canvas rather than shipped as a file. Seen
+   * at eye height in Walk mode, a flat colour reads as a void; planks with a
+   * little jitter read as a building.
+   */
+  woodTexture () {
+    if (this._woodTex) return this._woodTex;
+    const c = document.createElement('canvas');
+    c.width = c.height = 512;
+    const g = c.getContext('2d');
+    const plankH = 64;
+    for (let row = 0; row < 8; row++) {
+      const offset = (row % 2) * 128;
+      for (let px = -1; px < 5; px++) {
+        const x = px * 128 + offset;
+        const tone = 0.88 + ((row * 7 + px * 13) % 10) / 40;
+        g.fillStyle = `rgb(${(0xc9 * tone) | 0}, ${(0x93 * tone) | 0}, ${(0x62 * tone) | 0})`;
+        g.fillRect(x, row * plankH, 126, plankH - 2);
+        // grain
+        g.strokeStyle = 'rgba(90, 60, 35, 0.16)';
+        g.lineWidth = 1;
+        for (let k = 0; k < 3; k++) {
+          const gy = row * plankH + 12 + k * 16 + ((px * 31 + k * 7) % 9);
+          g.beginPath();
+          g.moveTo(x + 4, gy);
+          g.lineTo(x + 122, gy + ((k + px) % 3) - 1);
+          g.stroke();
+        }
+      }
+    }
+    this._woodTex = new THREE.CanvasTexture(c);
+    this._woodTex.wrapS = this._woodTex.wrapT = THREE.RepeatWrapping;
+    return this._woodTex;
   }
 
   /** A low-poly, chunky shape per kind. Readable at 384 wide is the only bar. */
@@ -435,8 +504,15 @@ export class View3D {
    */
   setFloorSurvey (on) {
     if (!this.floor) return;
-    this.floor.material.map = on ? this.heatTex : null;
-    this.floor.material.color.set(on ? 0xffffff : PAL.floor);
+    if (on) {
+      this.floor.material.map = this.heatTex;
+      this.floor.material.color.set(0xffffff);
+    } else {
+      const wood = this.woodTexture();
+      wood.repeat.set(this.room.w / 300, this.room.h / 300);
+      this.floor.material.map = wood;
+      this.floor.material.color.set(0xffffff);
+    }
     this.floor.material.needsUpdate = true;
   }
 
@@ -470,6 +546,14 @@ export class View3D {
     // view jitters with every grid step.
     const ahead = path[Math.min(path.length - 1, i + 12)];
     this.camera.position.set(x, EYE, z);
+    // At the end of the route the lookahead collapses onto the camera and
+    // the walk finishes nose-to-wall. Turn and face the way you came: the
+    // room you tried to cross is the thing worth looking at when it ends.
+    if (Math.hypot(ahead.x - x, ahead.y - z) < 30) {
+      const back = path[Math.max(0, i - 16)];
+      this.camera.lookAt(back.x, EYE, back.y);
+      return;
+    }
     // Level. A short lookahead plus any downward offset pitches the view
     // straight into the floor, which is most of what you then see.
     this.camera.lookAt(ahead.x, EYE, ahead.y);
