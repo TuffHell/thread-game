@@ -1,130 +1,205 @@
 /**
- * Does the room simulation behave like a room?
+ * Does each room behave like a room, and can it actually be solved?
  *
- * This is the test that decides whether the design is worth building a game
- * on. It checks four things:
+ * The earlier version of this test hardcoded one hand-written solution for
+ * one café, which stopped meaning anything the moment the room changed. This
+ * one searches for a solution instead: it looks at what is currently breaking
+ * the visit, tries the moves a player would try, and keeps whatever helps.
  *
- *   1. The café starts genuinely unusable, so there is a problem to solve.
- *   2. It can be made usable within the budget, so the problem is fair.
- *   3. Moving one object changes several domains at once, so decisions
- *      interact rather than being a checklist.
- *   4. Fixing the loudest thing is not sufficient on its own, so there is
- *      more than one move to find.
+ * If the search cannot finish a room within budget, the room is not fair.
  *
  *   node test/room-sim.mjs
  */
 
 import { ROOMS } from '../js/rooms.js';
-import { thing, def } from '../js/room.js';
+import { thing, def, KINDS } from '../js/room.js';
 import { makeGrid, compute, combine, explain, DOMAINS } from '../js/field.js';
-import { trip, PROFILE } from '../js/visitor.js';
+import { visit, PEOPLE } from '../js/person.js';
 
-function evaluate (r) {
+function evaluate (r, person) {
   const grid = makeGrid(r, 12);
   compute(r, grid);
-  combine(grid);
-  return { grid, result: trip(r, grid) };
+  combine(grid, person.weights);
+  return { grid, result: visit(r, grid, person) };
 }
 
-function pct (v) { return `${Math.round(v * 100)}%`; }
+const pct = v => `${Math.round(v * 100)}%`;
 
-/** What is actually making a spot bad, worst domain first. */
-function breakdown (grid, at) {
-  return explain(grid, at.x, at.y)
+function breakdown (grid, at, person) {
+  return explain(grid, at.x, at.y, person.weights)
     .filter(d => d.weighted > 0.005)
     .slice(0, 4)
     .map(d => `${d.domain} ${pct(d.raw)}`)
     .join('  ');
 }
 
+function spentOn (r) {
+  return r.things.filter(t => t.placed && t.fromTray)
+    .reduce((n, t) => n + (def(t).cost ?? 0), 0);
+}
+
+/** Somewhere far from everywhere the visitor goes. */
+function quietSpot (r, result) {
+  let best = null, bestD = -1;
+  for (let x = 60; x < r.w - 60; x += 70) {
+    for (let y = 60; y < r.h - 60; y += 70) {
+      let d = Infinity;
+      for (const s of result.path) d = Math.min(d, Math.hypot(x - s.x, y - s.y));
+      if (d > bestD) { bestD = d; best = { x, y }; }
+    }
+  }
+  return best;
+}
+
+/** The most comfortable place in the room to stand still for a while. */
+function calmestSpot (r, grid) {
+  let best = null, low = Infinity;
+  for (let i = 0; i < grid.load.length; i++) {
+    if (grid.blocked[i]) continue;
+    const x = grid.cx(i), y = grid.cy(i);
+    if (x < 80 || y < 80 || x > r.w - 80 || y > r.h - 80) continue;
+    if (grid.load[i] < low) { low = grid.load[i]; best = { x, y }; }
+  }
+  return best ?? { x: r.w / 2, y: r.h / 2 };
+}
+
+/**
+ * How good is an attempt?
+ *
+ * Getting further into the visit is the thing that matters, plus lowering the
+ * worst moment. Scoring on reserve remaining, which was the first thing I
+ * tried, rewards failing EARLIER, because a trip that ends at the front door
+ * has barely spent anything. The search happily sat still.
+ */
+const scoreOf = res =>
+  res.ok ? 1e9 : res.path.length * 20 - res.worst.load * 400;
+
+/**
+ * Play the room. Each round: find what is breaking it, try every move a
+ * player could make against that, keep the one that helps most.
+ */
+function play (spec, rounds = 14) {
+  const person = PEOPLE[spec.person] ?? PEOPLE.mara;
+  const r = spec.build();
+  let cur = evaluate(r, person);
+  const log = [];
+
+  for (let n = 0; n < rounds && !cur.result.ok; n++) {
+    const blame = cur.result.blame?.domain;
+    const at = cur.result.at ?? cur.result.worst;
+    const candidates = [];
+
+    // Move whatever is emitting the thing that is breaking it, somewhere the
+    // visitor never goes.
+    const spot = quietSpot(r, cur.result);
+    for (const t of r.things) {
+      if (!t.placed || !t.movable || !def(t).emits?.[blame]) continue;
+      candidates.push({ kind: 'move', t, to: spot, label: `move ${def(t).label}` });
+    }
+
+    // Move where they are allowed to sit. Running out during the forty
+    // seconds at a table is usually not about the route at all, it is about
+    // the only free table being next to the grinder, and relocating it is
+    // the first thing any real person would try.
+    const calm = calmestSpot(r, cur.grid);
+    for (const t of r.things) {
+      if (!t.placed || t.kind !== 'seat') continue;
+      candidates.push({ kind: 'move', t, to: calm, label: `move ${def(t).label}` });
+    }
+
+    // Or buy something that absorbs it, and put it where it is worst.
+    const left = r.budget - spentOn(r);
+    for (const k of r.tray) {
+      const D = KINDS[k];
+      if ((D.cost ?? 0) > left) continue;
+      const helps = D.absorbs?.[blame] || D.refuge;
+      if (!helps) continue;
+      for (const near of [at, { x: at.x + 90, y: at.y }, { x: at.x, y: at.y + 90 }]) {
+        candidates.push({ kind: 'place', k, at: near, label: `place ${D.label}` });
+      }
+    }
+
+    let best = null;
+    for (const c of candidates) {
+      let undo;
+      if (c.kind === 'move') {
+        const old = { x: c.t.x, y: c.t.y };
+        c.t.x = c.to.x; c.t.y = c.to.y;
+        undo = () => { c.t.x = old.x; c.t.y = old.y; };
+      } else {
+        const t = thing(c.k, c.at.x, c.at.y);
+        t.fromTray = true;
+        r.things.push(t);
+        undo = () => { r.things = r.things.filter(x => x !== t); };
+      }
+      const trial = evaluate(r, person);
+      const score = scoreOf(trial.result);
+      if (!best || score > best.score) best = { c, score, trial };
+      undo();
+    }
+
+    if (!best || best.score <= scoreOf(cur.result) + 1e-6) break;
+
+    const c = best.c;
+    if (c.kind === 'move') { c.t.x = c.to.x; c.t.y = c.to.y; }
+    else { const t = thing(c.k, c.at.x, c.at.y); t.fromTray = true; r.things.push(t); }
+    log.push(c.label);
+    cur = evaluate(r, person);
+  }
+
+  return { r, person, cur, log, cost: spentOn(r) };
+}
+
+/* ------------------------------------------------------------------ */
+
 let failures = 0;
 const check = (name, ok, detail = '') => {
   if (!ok) failures++;
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  ${detail}` : ''}`);
+  console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  ${detail}` : ''}`);
 };
 
 for (const spec of ROOMS) {
-  console.log(`\n== ${spec.title} ==`);
+  const person = PEOPLE[spec.person] ?? PEOPLE.mara;
+  console.log(`\n== ${spec.title}  (${person.name}) ==`);
 
-  /* 1. Starts broken --------------------------------------------- */
-  const r = spec.build();
-  const before = evaluate(r);
-  check('starts unusable', !before.result.ok,
-    before.result.ok
-      ? '(the room is already fine, so there is no puzzle)'
-      : `trip ends ${before.result.leg}, ${before.result.reason}` +
-        (before.result.blame ? `, worst domain ${before.result.blame.domain}` : ''));
+  const start = evaluate(spec.build(), person);
+  check('starts unusable', !start.result.ok,
+    start.result.ok ? '(already fine, so there is no puzzle)'
+      : `${start.result.reason} ${start.result.leg}, worst domain ${start.result.blame?.domain}`);
+  console.log(`        worst ${pct(start.result.worst.load)} · ` +
+    breakdown(start.grid, start.result.worst, person));
 
-  console.log(`      worst point on route: ${pct(before.result.worst.load)} ` +
-    `at ${Math.round(before.result.worst.x)},${Math.round(before.result.worst.y)}`);
-  console.log(`      ${breakdown(before.grid, before.result.worst)}`);
+  const solved = play(spec);
+  check('solvable within budget', solved.cur.result.ok && solved.cost <= solved.r.budget,
+    solved.cur.result.ok
+      ? `${solved.log.length} moves, cost ${solved.cost} of ${solved.r.budget}, ` +
+        `reserve ${Math.round(solved.cur.result.reserve)}`
+      : `search gave up: ${solved.cur.result.reason} ${solved.cur.result.leg}`);
+  if (solved.log.length) console.log(`        ${solved.log.join(' → ')}`);
 
-  /* 2. Fixable within budget -------------------------------------- */
-  const fixed = spec.build();
-  // A plausible player solution: move the grinder away from the queue, damp
-  // the room, screen the door, and give them somewhere to sit that is not
-  // in the middle of it.
-  // Move the noisy things off the route rather than merely away from the
-  // counter, and buy a refuge plus damping with the four available.
-  const g = fixed.things.find(t => t.kind === 'grinder');
-  g.x = 130; g.y = 80;
-  const spk = fixed.things.find(t => t.kind === 'speaker');
-  spk.x = 780; spk.y = 560;
-  const fl = fixed.things.find(t => t.kind === 'fluorescent');
-  fl.x = 780; fl.y = 80;
+  check('needs more than one move', solved.log.length >= 2,
+    `${solved.log.length} move(s)`);
 
-  const added = [
-    thing('booth', 300, 220),
-    // Right beside the machine, which cannot be moved, so the only way to
-    // fix the queue is to damp it where it stands.
-    thing('panel', 690, 250), thing('panel', 560, 90)
-  ];
-  added.forEach(t => { t.fromTray = true; fixed.things.push(t); });
-  const cost = added.reduce((n, t) => n + (def(t).cost ?? 0), 0);
+  // Interruptions have to actually bite, or the monotropism model is inert.
+  check('interruptions occur during the visit', start.result.events.length > 0,
+    `${start.result.events.length} during the failed attempt`);
 
-  const after = evaluate(fixed);
-  check('fixable within budget', after.result.ok && cost <= fixed.budget,
-    `cost ${cost} of ${fixed.budget}, ` +
-    (after.result.ok
-      ? `reserve left ${Math.round(after.result.reserve)}`
-      : `still fails: ${after.result.reason} ${after.result.leg}`));
-
-  console.log(`      worst point after: ${pct(after.result.worst.load)} ` +
-    `at ${Math.round(after.result.worst.x)},${Math.round(after.result.worst.y)}`);
-  console.log(`      ${breakdown(after.grid, after.result.worst)}`);
-
-  /* 3. One move touches several domains --------------------------- */
+  // One object should disturb several channels, or placement is a checklist.
   const probe = spec.build();
-  const pg = evaluate(probe);
-  const spot = { x: 300, y: 300 };
-  const beforeDomains = explain(pg.grid, spot.x, spot.y);
-
-  const screen = thing('screen', 320, 320);
-  screen.fromTray = true;
-  probe.things.push(screen);
-  const pg2 = evaluate(probe);
-  const afterDomains = explain(pg2.grid, spot.x, spot.y);
-
-  const moved = DOMAINS.filter(d => {
-    const a = beforeDomains.find(x => x.domain === d).raw;
-    const b = afterDomains.find(x => x.domain === d).raw;
-    return Math.abs(a - b) > 0.01;
-  });
-  check('one object moves several domains', moved.length >= 2,
-    `[${moved.join(', ')}]`);
-
-  /* 4. The loudest fix alone is not enough ------------------------ */
-  const partial = spec.build();
-  const pgr = partial.things.find(t => t.kind === 'grinder');
-  pgr.x = 770; pgr.y = 60;
-  const only = evaluate(partial);
-  check('silencing the worst source alone is not enough', !only.result.ok,
-    only.result.ok
-      ? '(one move solves it, so there is no puzzle)'
-      : `still ${only.result.reason} ${only.result.leg}`);
+  const before = evaluate(probe, person);
+  const spot = { x: before.result.worst.x, y: before.result.worst.y };
+  const b4 = explain(before.grid, spot.x, spot.y, person.weights);
+  const scr = thing('screen', spot.x + 20, spot.y + 20);
+  scr.fromTray = true;
+  probe.things.push(scr);
+  const after = evaluate(probe, person);
+  const af = explain(after.grid, spot.x, spot.y, person.weights);
+  const moved = DOMAINS.filter(d =>
+    Math.abs(b4.find(z => z.domain === d).raw - af.find(z => z.domain === d).raw) > 0.01);
+  check('one object moves several channels', moved.length >= 2, `[${moved.join(', ')}]`);
 }
 
 console.log(failures === 0
-  ? '\nThe simulation behaves like a room.'
+  ? '\nEvery room is unfair to start with and fair to finish.'
   : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

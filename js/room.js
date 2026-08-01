@@ -81,7 +81,17 @@ export const KINDS = {
   // Fixed features
   door:    { label: 'Door', r: 36, cost: 0, movable: false, emits: { crowd: 0.45 }, radius: { crowd: 260 } },
   counter: { label: 'Counter', r: 70, cost: 0, movable: false, emits: { crowd: 0.6 }, radius: { crowd: 300 } },
-  seat:    { label: 'Table', r: 34, cost: 0, movable: true }
+  seat:    { label: 'Table', r: 34, cost: 0, movable: true },
+
+  // Furnishing. Mostly there so the room reads as a place rather than a
+  // diagram, but it is not free: chairs and clutter are things to squeeze
+  // past and things to look at.
+  chair:   { label: 'Chair', r: 20, cost: 0, emits: { crowd: 0.12, clutter: 0.10 }, radius: { crowd: 90, clutter: 110 } },
+  shelf:   { label: 'Shelving', r: 44, cost: 0, movable: false, blocksSight: true,
+             emits: { clutter: 0.42 }, clutterRadius: 240, absorbs: { sound: 0.22 }, radius: { sound: 200 } },
+  menu:    { label: 'Menu board', r: 34, cost: 0, movable: false, emits: { clutter: 0.34 }, clutterRadius: 220 },
+  bin:     { label: 'Bin', r: 20, cost: 0, emits: { smell: 0.4, clutter: 0.12 }, radius: { smell: 200 }, clutterRadius: 120 },
+  pot:     { label: 'Plant', r: 24, cost: 0, absorbs: { sound: 0.12, glare: 0.15 }, radius: { sound: 140, glare: 150 } }
 };
 
 let uid = 0;

@@ -17,13 +17,21 @@ import {
   def, transmission, seesThrough, hardSurfaceNear, pointToSegment, MATERIALS
 } from './room.js';
 
-export const DOMAINS = ['sound', 'light', 'flicker', 'glare', 'crowd', 'clutter', 'escape', 'exposure'];
+export const DOMAINS = ['sound', 'light', 'flicker', 'glare', 'crowd', 'clutter', 'smell', 'escape', 'exposure'];
 
 /** How much each domain hurts. A visitor profile can override this. */
 export const DEFAULT_WEIGHTS = {
   sound: 1.0, light: 0.5, flicker: 0.9, glare: 0.6,
-  crowd: 0.85, clutter: 0.4, escape: 0.7, exposure: 0.45
+  crowd: 0.85, clutter: 0.4, smell: 0.55, escape: 0.7, exposure: 0.45
 };
+
+const warned = new Set();
+function warnOnce (kind, dom) {
+  const k = `${kind}:${dom}`;
+  if (warned.has(k)) return;
+  warned.add(k);
+  console.warn(`[field] "${kind}" refers to unknown domain "${dom}"; ignoring.`);
+}
 
 export function makeGrid (r, cell = 12) {
   const cols = Math.ceil(r.w / cell);
@@ -90,6 +98,7 @@ export function compute (r, grid) {
 
       if (D.emits) {
         for (const [dom, amount] of Object.entries(D.emits)) {
+          if (!layers[dom]) { warnOnce(t.kind, dom); continue; }
           const radius = (dom === 'clutter' ? D.clutterRadius : D.radius?.[dom]) ?? 260;
           const f = falloff(dist, radius);
           if (f <= 0) continue;
@@ -102,6 +111,7 @@ export function compute (r, grid) {
 
       if (D.absorbs) {
         for (const [dom, amount] of Object.entries(D.absorbs)) {
+          if (!layers[dom]) { warnOnce(t.kind, dom); continue; }
           const radius = D.radius?.[dom] ?? 220;
           const f = falloff(dist, radius);
           if (f > 0) layers[dom][i] -= amount * f;

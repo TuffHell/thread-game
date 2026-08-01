@@ -23,6 +23,8 @@ const ui = {
     $('roomCount').textContent = `room ${s.index + 1} of ${ROOMS.length}`;
     $('roomTitle').textContent = s.spec.title;
     $('roomLine').textContent = s.spec.line;
+    $('personName').textContent = s.person.name;
+    $('personBlurb').textContent = s.person.blurb;
     this.syncTray(s);
     this.buildLayers(s);
   },
@@ -166,24 +168,41 @@ function frame (now) {
     if (mode === 'plan') {
       studio.render();
     } else {
+      const path = studio.result?.path ?? [];
       if (mode === 'look') {
         view.setCutaway(true);
         view.setFloorSurvey(true);
-        view.setPlanCamera(orbit, 0.80, 1.45);
+        view.setPlanCamera(orbit, 0.86, 1.9);
+        // The visit plays on a loop in the overview, so you watch her walk
+        // the room you just changed without having to ask for it.
+        walkT = (walkT + dt / Math.max(4000, path.length * 60)) % 1;
+        const i = Math.min(path.length - 1, Math.floor(walkT * path.length));
+        view.placeVisitor(path[i], path[Math.min(path.length - 1, i + 4)]);
       } else {
         view.setCutaway(false);
         view.setFloorSurvey(false);
-        const path = studio.result?.path ?? [];
+        view.placeVisitor(null);
         // Walk at the speed the simulation used, then hold at the end.
         walkT = Math.min(1, walkT + dt / Math.max(2600, path.length * 46));
         view.setWalkCamera(path, walkT);
         $('walkFill').style.width = `${walkT * 100}%`;
         $('walkbar').classList.toggle('bad', !studio.result?.ok);
+        const idx = Math.floor(walkT * path.length);
+        const ev = (studio.result?.events ?? [])
+          .filter(e => e.index <= idx).slice(-1)[0];
+        const fresh = ev && idx - ev.index < 26;
+        $('interrupt3d').hidden = !fresh;
+        if (fresh) {
+          $('interrupt3dText').textContent = ev.text;
+          $('interrupt3dNote').textContent = ev.recoverable
+            ? 'There was somewhere to settle afterwards.'
+            : 'Nowhere to settle afterwards. She started again from nothing.';
+        }
         if (walkT >= 1) {
           const v = studio.verdict();
           $('walkNote').textContent = v ? v.headline : '';
         } else {
-          $('walkNote').textContent = 'walking the route they actually took';
+          $('walkNote').textContent = 'walking the route she actually took';
         }
       }
       view.render();

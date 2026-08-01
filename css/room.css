@@ -221,3 +221,58 @@
   .probe { bottom: 118px; }
   .room-top p { display: none; }
 }
+
+/* ---------------------------------------------------------------- */
+/* Who is walking                                                    */
+/* ---------------------------------------------------------------- */
+
+.person {
+  margin: 10px 0 0;
+  max-width: 34ch;
+  pointer-events: none;
+}
+.person b {
+  display: block;
+  font-family: var(--serif);
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--ink);
+}
+.person span {
+  display: block;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+/* An interruption, surfaced at the moment it happened on the walk. */
+.interrupt3d {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 96px;
+  width: min(440px, calc(100vw - 40px));
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-left: 3px solid #e2a04a;
+  border-radius: var(--r-md);
+  padding: 13px 17px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  pointer-events: none;
+  z-index: 6;
+}
+.interrupt3d p {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+.interrupt3d .i3d-note {
+  font-family: var(--sans);
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+  margin-top: 6px;
+}

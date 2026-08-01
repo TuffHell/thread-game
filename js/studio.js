@@ -10,7 +10,7 @@ import { settings } from './config.js';
 import { ROOMS } from './rooms.js';
 import { def, KINDS, spent, thing } from './room.js';
 import { makeGrid, compute, combine, explain, DOMAINS } from './field.js';
-import { trip, PROFILE } from './visitor.js';
+import { visit, PEOPLE, MODEL } from './person.js';
 import {
   fit, toScreen, toRoom, drawBackdrop, drawHeat, drawWalls,
   drawRoute, drawThings, drawMarkers
@@ -40,9 +40,17 @@ export class Studio {
     this.spec = spec;
     this.room = spec.build();
     this.grid = makeGrid(this.room, 12);
+    this.person = PEOPLE[spec.person ?? 'mara'];
     this.held = null;
     this.trayPick = null;
     this.moves = 0;
+    this.attempts = 0;
+    this.recompute();
+    this.ui.onRoom(this);
+  }
+
+  setPerson (key) {
+    this.person = PEOPLE[key] ?? this.person;
     this.recompute();
     this.ui.onRoom(this);
   }
@@ -50,8 +58,10 @@ export class Studio {
   /** The only expensive thing in the game, and it runs on every change. */
   recompute () {
     compute(this.room, this.grid);
-    combine(this.grid);
-    this.result = trip(this.room, this.grid, PROFILE);
+    // Weighted by who is actually walking it, so the same room is a different
+    // problem for different people. That is the point of the profiles.
+    combine(this.grid, this.person.weights);
+    this.result = visit(this.room, this.grid, this.person);
     this.dirty = true;
     this.ui.onResult(this);
   }
@@ -60,30 +70,42 @@ export class Studio {
   verdict () {
     const r = this.result;
     if (!r) return null;
+    const who = r.person.name;
+
     if (r.ok) {
+      const bits = [`with ${Math.round(r.reserve)}% left over`];
+      if (r.maskedSeconds > 3) bits.push(`${Math.round(r.maskedSeconds)}s of it holding herself together`);
+      if (r.settledSeconds > 2) bits.push('and somewhere to settle when she needed it');
       return {
         ok: true,
-        headline: 'They made it in, ordered, sat down and left.',
-        detail: `Comfortable enough the whole way, with ${Math.round(r.reserve)}% left over.`
+        headline: `${who} got in, ordered, sat down and left.`,
+        detail: bits.join(', ') + '.'
       };
     }
     if (r.reason === 'blocked') {
       return { ok: false, headline: 'There is no way through.', detail: `Blocked ${r.leg}.` };
     }
+
     const cause = r.blame ? READABLE[r.blame.domain] ?? r.blame.domain : 'the room';
+    const broke = r.events.length
+      ? ` She had been interrupted ${r.events.length} ` +
+        `time${r.events.length > 1 ? 's' : ''} by then` +
+        (r.events.some(e => !e.recoverable) ? ', with nowhere to settle after.' : '.')
+      : '';
+
     if (r.reason === 'spike') {
       return {
         ok: false,
         headline: `It became too much ${r.leg}.`,
-        detail: `One spot on the route is unbearable, and the reason is ${cause}. ` +
-                'Nothing elsewhere makes up for it.'
+        detail: `One spot is past what ${who} can take, and the reason is ${cause}. ` +
+                'Nothing elsewhere in the room makes up for it.' + broke
       };
     }
     return {
       ok: false,
-      headline: `They ran out ${r.leg}.`,
-      detail: `Nothing here was unbearable on its own, but ${cause} across the ` +
-              'whole trip added up to more than they had.'
+      headline: `${who} ran out ${r.leg}.`,
+      detail: `Nothing here was unbearable by itself, but ${cause} across the ` +
+              'whole visit added up to more than she had.' + broke
     };
   }
 

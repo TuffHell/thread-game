@@ -27,22 +27,26 @@ const WALL_H = 285;
 // Cool, slightly desaturated, with warm accents held back for light sources.
 // Kept small on purpose: a tight palette is most of what reads as authored.
 const PAL = {
-  floor:      0xb9ae9c,
-  floorAlt:   0xc6bba7,
-  wallTile:   0xd6dde2,
-  wallGlass:  0x9fc6d4,
-  wallBrick:  0xb07a63,
-  wallWood:   0xb08757,
-  wallPlaster:0xc3c0b6,
-  wallAcoustic:0x6b8079,
-  ceiling:    0xe8e4da,
-  sky:        0x9fb6c4,
-  metal:      0xb9c2c9,
-  dark:       0x4a5259,
-  warm:       0xf0b96a,
+  floor:      0xc9a179,
+  floorAlt:   0xd6b088,
+  wallTile:   0xe4e0d2,
+  wallGlass:  0xa8d2dd,
+  wallBrick:  0xc07a56,
+  wallWood:   0xc08f52,
+  wallPlaster:0xdcd3bd,
+  wallAcoustic:0x7d9b84,
+  ceiling:    0xf3ead8,
+  sky:        0xa9c9d6,
+  metal:      0xc3ccd2,
+  dark:       0x5a4a42,
+  warm:       0xffc46b,
   cool:       0x7fd4c1,
-  seat:       0xa87c5c,
-  plant:      0x6f9c62
+  seat:       0xb87a4a,
+  wood:       0x9c6b3f,
+  plant:      0x74a85c,
+  cloth:      0xd05f52,
+  skin:       0xe0a878,
+  coat:       0x4f6d8a
 };
 
 const wallColor = m => ({
@@ -119,7 +123,7 @@ export class View3D {
     this.scene.background = new THREE.Color(PAL.sky);
     // Far enough out that an overview is not swallowed by haze. Interiors are
     // small; fog here is for softening depth, not for hiding draw distance.
-    this.scene.fog = new THREE.Fog(PAL.sky, 900, 3400);
+    this.scene.fog = new THREE.Fog(PAL.sky, 1100, 3800);
 
     this.camera = new THREE.PerspectiveCamera(68, RENDER_W / RENDER_H, 8, 4000);
     this.mode = 'plan';
@@ -184,9 +188,9 @@ export class View3D {
 
     // Light. Kept few and hard, because soft global illumination reads as
     // mush once you are down at this resolution.
-    s.add(new THREE.AmbientLight(0xdfe6f0, 2.2));
-    s.add(new THREE.HemisphereLight(0xf2f6ff, 0xa89b86, 1.1));
-    const key = new THREE.DirectionalLight(0xfff4e2, 1.5);
+    s.add(new THREE.AmbientLight(0xffeedd, 2.0));
+    s.add(new THREE.HemisphereLight(0xfff3e0, 0xb08a63, 1.3));
+    const key = new THREE.DirectionalLight(0xffe9c4, 1.8);
     key.position.set(cx - 400, 900, cz - 500);
     key.castShadow = true;
     key.shadow.mapSize.set(1024, 1024);
@@ -289,8 +293,43 @@ export class View3D {
         g.add(cyl(D.r * 0.8, 6, PAL.wallWood, 72, 10));
         break;
       case 'door':
-        g.add(box(D.r * 1.8, 205, 8, 0x3c4652, 0));
+        g.add(box(D.r * 1.8, 205, 8, PAL.wood, 0));
+        g.add(box(D.r * 1.4, 120, 4, PAL.wallGlass, 70));
         break;
+
+      case 'chair': {
+        g.add(cyl(4, 42, PAL.metal, 0, 6).clone());
+        g.add(box(34, 5, 34, PAL.wood, 42));
+        g.add(box(34, 34, 5, PAL.wood, 47));
+        g.children.at(-1).position.z = -14;
+        break;
+      }
+      case 'shelf': {
+        g.add(box(D.r * 1.8, 190, 30, PAL.wood, 0));
+        for (let i = 0; i < 4; i++) {
+          const row = box(D.r * 1.6, 26, 22, i % 2 ? PAL.cloth : PAL.wallAcoustic, 22 + i * 42);
+          g.add(row);
+        }
+        break;
+      }
+      case 'menu':
+        g.add(box(D.r * 1.9, 60, 5, PAL.dark, 175));
+        break;
+      case 'bin':
+        g.add(cyl(D.r * 0.8, 62, PAL.wallAcoustic, 0, 8));
+        g.add(cyl(D.r * 0.85, 6, PAL.dark, 62, 8));
+        break;
+      case 'pot':
+        g.add(cyl(D.r * 0.7, 34, PAL.cloth, 0, 8));
+        for (let i = 0; i < 5; i++) {
+          const b = new THREE.Mesh(new THREE.SphereGeometry(15, 6, 5), col(PAL.plant));
+          const a = (i / 5) * Math.PI * 2;
+          b.position.set(Math.cos(a) * 12, 44 + (i % 2) * 14, Math.sin(a) * 12);
+          b.castShadow = true;
+          g.add(b);
+        }
+        break;
+
       default:
         g.add(box(D.r, 60, D.r, PAL.metal));
     }
@@ -299,6 +338,60 @@ export class View3D {
     g.userData.thingId = t.id;
     this.scene.add(g);
     this.thingMeshes.set(t.id, g);
+  }
+
+  /**
+   * The visitor.
+   *
+   * Deliberately a person and not a marker. Watching someone walk your room
+   * and stop is a different thing from watching a dot reach a red cross, and
+   * the difference is most of why the room matters to the player at all.
+   */
+  ensureVisitor () {
+    if (this.visitor) return this.visitor;
+    const g = new THREE.Group();
+    const col = c => new THREE.MeshLambertMaterial({ color: c });
+
+    const legs = new THREE.Mesh(new THREE.BoxGeometry(24, 62, 16), col(PAL.dark));
+    legs.position.y = 31;
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(30, 52, 20), col(PAL.coat));
+    torso.position.y = 88;
+    const head = new THREE.Mesh(new THREE.BoxGeometry(22, 22, 20), col(PAL.skin));
+    head.position.y = 126;
+    const hair = new THREE.Mesh(new THREE.BoxGeometry(24, 9, 22), col(0x4a3327));
+    hair.position.y = 138;
+
+    for (const m of [legs, torso, head, hair]) { m.castShadow = true; g.add(m); }
+
+    // A ring on the floor that reads as their state without needing a HUD.
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(30, 40, 20),
+      new THREE.MeshBasicMaterial({ color: PAL.cool, transparent: true, opacity: 0.55,
+        side: THREE.DoubleSide })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 2;
+    g.add(ring);
+    this.visitorRing = ring;
+
+    this.scene.add(g);
+    this.visitor = g;
+    return g;
+  }
+
+  /** Place the visitor at a point on their walk and colour them by how it is going. */
+  placeVisitor (step, facing) {
+    if (!step) { if (this.visitor) this.visitor.visible = false; return; }
+    const g = this.ensureVisitor();
+    g.visible = true;
+    g.position.set(step.x, 0, step.y);
+    if (facing) g.rotation.y = Math.atan2(facing.x - step.x, facing.y - step.y);
+
+    // Green while there is room to spare, red as it closes in.
+    const t = Math.min(1, step.load / 0.45);
+    this.visitorRing.material.color.setHSL((1 - t) * 0.33, 0.62, 0.5);
+    this.visitorRing.scale.setScalar(1 + step.absorption * 0.35);
+    this.visitorRing.material.opacity = 0.35 + t * 0.45;
   }
 
   /** Cheap per-frame sync so dragging in plan view moves the 3D object too. */
