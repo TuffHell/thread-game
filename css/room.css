@@ -1,0 +1,153 @@
+/* Room prototype. Layered on top of the shared tokens in style.css. */
+
+.room-top {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  padding: clamp(14px, 2.2vw, 28px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------- */
+/* What happened to the visitor                                      */
+/* ---------------------------------------------------------------- */
+
+.verdict {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 96px;
+  width: min(560px, calc(100vw - 40px));
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-left: 3px solid #ff6b5e;
+  border-radius: var(--r-md);
+  padding: 14px 18px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  pointer-events: none;
+  transition: border-color var(--t-mid) var(--ease);
+}
+.verdict.ok { border-left-color: #6fd6a8; }
+
+.verdict-head {
+  margin: 0 0 5px;
+  font-family: var(--serif);
+  font-size: 1.06rem;
+  line-height: 1.35;
+  color: var(--ink);
+}
+.verdict-detail {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------------- */
+/* Tray                                                              */
+/* ---------------------------------------------------------------- */
+
+.tray {
+  position: absolute;
+  left: clamp(14px, 2.2vw, 28px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 168px;
+}
+
+.tray-item {
+  font: inherit;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-sm);
+  padding: 9px 12px;
+  cursor: pointer;
+  transition: border-color var(--t-fast), transform var(--t-fast) var(--ease),
+              background var(--t-fast);
+}
+.tray-item:hover:not([disabled]) { border-color: var(--ink-soft); transform: translateX(2px); }
+.tray-item.picked {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+}
+.tray-item[disabled] { opacity: 0.32; cursor: not-allowed; }
+.tray-item b { font-weight: 600; font-size: 0.84rem; }
+.tray-item span {
+  font-size: 0.7rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- */
+/* Layer switcher                                                    */
+/* ---------------------------------------------------------------- */
+
+.layers {
+  position: absolute;
+  right: clamp(14px, 2.2vw, 28px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.layer {
+  font: inherit;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-align: right;
+  background: transparent;
+  color: var(--ink-soft);
+  border: 0;
+  border-right: 2px solid transparent;
+  padding: 5px 10px 5px 14px;
+  cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.layer:hover { color: var(--ink); }
+.layer.on { color: var(--ink); border-right-color: var(--accent); font-weight: 600; }
+
+/* ---------------------------------------------------------------- */
+
+.probe {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 52px;
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  color: var(--ink-soft);
+  pointer-events: none;
+  min-height: 1.2em;
+}
+
+@media (max-width: 860px) {
+  .tray {
+    top: auto; bottom: 12px; left: 12px; right: 12px;
+    transform: none;
+    flex-direction: row;
+    width: auto;
+    overflow-x: auto;
+  }
+  .tray-item { flex: 0 0 auto; }
+  .layers { top: auto; bottom: 74px; right: 12px; transform: none; flex-direction: row; }
+  .layer { border-right: 0; border-bottom: 2px solid transparent; }
+  .layer.on { border-bottom-color: var(--accent); }
+  .verdict { bottom: 140px; }
+  .probe { bottom: 118px; }
+  .room-top p { display: none; }
+}

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Room — prototype</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/room.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="stage" aria-label="Room plan. Drag objects to move them."></canvas>
+
+  <header class="hud-top room-top">
+    <div class="hud-level">
+      <span class="hud-count" id="roomCount"></span>
+      <h1 id="roomTitle"></h1>
+      <p id="roomLine"></p>
+    </div>
+    <div class="hud-right">
+      <div class="gauge">
+        <span class="gauge-label">budget</span>
+        <span class="gauge-read" id="budgetRead">–</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- What the visitor experienced -->
+  <section class="verdict" id="verdict">
+    <p class="verdict-head" id="verdictHead"></p>
+    <p class="verdict-detail" id="verdictDetail"></p>
+  </section>
+
+  <!-- Things you can add -->
+  <aside class="tray" id="tray" aria-label="Things you can place"></aside>
+
+  <!-- Which layer you are looking at -->
+  <nav class="layers" id="layers" aria-label="Sensory layer"></nav>
+
+  <p class="probe" id="probe"></p>
+  <p id="live" class="sr-only" aria-live="polite"></p>
+</div>
+<script type="module" src="js/room-main.js"></script>
+</body>
+</html>
