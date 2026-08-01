@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>THREAD</title>
+<meta name="description" content="A game about depth of attention, and what it costs to lose it.">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🧵</text></svg>">
+</head>
+<body>
+
+<div id="app">
+  <canvas id="stage" aria-label="The weave. Use arrow keys to move between strands."></canvas>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Heads up display                                              -->
+  <!-- ------------------------------------------------------------ -->
+  <div id="hud" hidden>
+    <header class="hud-top">
+      <div class="hud-level">
+        <span class="hud-count" id="levelCount"></span>
+        <h1 id="levelTitle"></h1>
+        <p id="levelLine"></p>
+      </div>
+
+      <div class="hud-right">
+        <div class="gauge" id="depthGauge" title="How deep you are">
+          <span class="gauge-label">depth</span>
+          <div class="ladder" id="ladder"></div>
+          <span class="gauge-read" id="depthMetres">surface</span>
+        </div>
+        <div class="gauge" id="attnGauge" title="Attention. It comes back while you are deep.">
+          <span class="gauge-label">attention</span>
+          <div class="pips" id="pips"></div>
+        </div>
+        <button class="icon-btn" id="settingsBtn" aria-label="World settings">world</button>
+      </div>
+    </header>
+
+    <div class="log" id="log" aria-hidden="true"></div>
+
+    <div class="tools">
+      <button class="tool" id="maskBtn" aria-pressed="false">
+        <b>Mask</b><span>They leave you alone. It runs off the same attention.</span>
+      </button>
+      <button class="tool" id="stimBtn" aria-pressed="false">
+        <b>Settle</b><span>Hold. Does nothing to the puzzle. Gives attention back.</span>
+      </button>
+    </div>
+
+    <footer class="hud-bottom">
+      <div class="keys">
+        <span><b>hold</b> a bundle to go in</span>
+        <span><b>click</b> a strand to tune it</span>
+        <span><b>esc</b> to come up</span>
+        <span><b>m</b> mask</span>
+        <span><b>s</b> settle</span>
+      </div>
+      <div class="hud-bottom-right">
+        <button class="icon-btn ghost" id="aboutBtn">about</button>
+        <button class="icon-btn ghost" id="skipBtn">skip level</button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- A fragment found in the weave                                 -->
+  <!-- ------------------------------------------------------------ -->
+  <div id="fragment" class="fragment" hidden><p id="fragmentText"></p></div>
+
+  <!-- Teaching prompt. Waits for the player, never for a clock. -->
+  <div id="teach" class="teach" hidden>
+    <p id="teachText"></p>
+    <button class="icon-btn ghost" id="teachSkip">I have got it</button>
+  </div>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- About                                                         -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="about" class="overlay" hidden>
+    <div class="calib-inner">
+      <h2>What this is built on</h2>
+      <div id="aboutSources"></div>
+
+      <h3 class="about-sub">The words you find in the weave</h3>
+      <p class="calib-intro" id="voicesNote"></p>
+
+      <h3 class="about-sub">What the game does and does not do</h3>
+      <p class="calib-intro">
+        This will not shorten anyone's waiting list or get a child the support they
+        are owed. What it does is put a non-autistic player inside a system where
+        depth is the strength and interruption is the cost, and make a game an
+        autistic player can actually sit down with: no timer, no fail state,
+        nothing missable, no sound unless you asked for it, and the whole world
+        set to your terms before the first frame.
+      </p>
+
+      <div class="calib-actions"><button class="btn btn-big" id="aboutClose">Back</button></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Interruption                                                  -->
+  <!-- ------------------------------------------------------------ -->
+  <div id="interrupt" class="card interrupt" hidden>
+    <div class="interrupt-ring"><svg viewBox="0 0 44 44"><circle class="ring-bg" cx="22" cy="22" r="19"/><circle class="ring-fg" id="interruptRing" cx="22" cy="22" r="19"/></svg></div>
+    <div class="interrupt-body">
+      <p class="interrupt-warn" id="interruptWarn">Something is about to ask for you.</p>
+      <p class="interrupt-text" id="interruptText"></p>
+      <div class="interrupt-actions">
+        <button class="btn" id="answerBtn">Answer</button>
+        <button class="btn btn-quiet" id="refuseBtn">Hold it</button>
+      </div>
+      <p class="interrupt-note" id="interruptNote">Answering takes all of your depth. Holding it costs you something else.</p>
+    </div>
+  </div>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Title                                                         -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="title" class="overlay">
+    <div class="title-inner">
+      <p class="eyebrow">a game about attention</p>
+      <h1 class="wordmark">THREAD</h1>
+      <p class="strap">A strand is never one thing. Hold it long enough and it opens.</p>
+      <div class="title-actions">
+        <button class="btn btn-big" id="beginBtn">Begin</button>
+        <button class="btn btn-quiet" id="calibrateBtn">Set up the world first</button>
+      </div>
+      <p class="credit">Built on monotropism, the account of autistic attention put
+      forward by Dinah Murray, Mike Lesser and Wenn Lawson. Depth is the mechanic
+      because depth is the point.</p>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Calibration                                                   -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="calibration" class="overlay" hidden>
+    <div class="calib-inner">
+      <h2>Before anything moves</h2>
+      <p class="calib-intro">Set the world to something you can be in. Nothing here is a
+      concession and nothing is hidden in a menu. You can change any of it at any time.</p>
+
+      <fieldset class="calib-group">
+        <legend>The look of it</legend>
+        <div class="choices" id="paletteChoices"></div>
+      </fieldset>
+
+      <fieldset class="calib-group">
+        <legend>Movement</legend>
+        <div class="choices" role="radiogroup" id="motionChoices">
+          <button class="choice" data-v="1"><b>Full</b><span>Strands drift and breathe.</span></button>
+          <button class="choice" data-v="0.5"><b>Reduced</b><span>Slower, smaller movement.</span></button>
+          <button class="choice" data-v="0"><b>Still</b><span>Nothing moves on its own.</span></button>
+        </div>
+      </fieldset>
+
+      <fieldset class="calib-group">
+        <legend>Glow</legend>
+        <div class="choices" role="radiogroup" id="glowChoices">
+          <button class="choice" data-v="1"><b>On</b><span>Light bleeds around bright things.</span></button>
+          <button class="choice" data-v="0.4"><b>Low</b><span>A hint of it.</span></button>
+          <button class="choice" data-v="0"><b>Off</b><span>Flat colour, hard edges.</span></button>
+        </div>
+      </fieldset>
+
+      <fieldset class="calib-group">
+        <legend>Sound</legend>
+        <div class="choices" role="radiogroup" id="soundChoices">
+          <button class="choice" data-v="0"><b>Silent</b><span>The default. Nothing will play.</span></button>
+          <button class="choice" data-v="1"><b>On</b><span>Low tones, no sudden sounds ever.</span></button>
+        </div>
+      </fieldset>
+
+      <fieldset class="calib-group">
+        <legend>Peripheral softening</legend>
+        <div class="choices" role="radiogroup" id="lensChoices">
+          <button class="choice" data-v="1"><b>On</b><span>Sight is clear where you are looking.</span></button>
+          <button class="choice" data-v="0"><b>Off</b><span>The whole weave stays sharp.</span></button>
+        </div>
+      </fieldset>
+
+      <fieldset class="calib-group">
+        <legend>Being interrupted</legend>
+        <div class="choices" role="radiogroup" id="interruptChoices">
+          <button class="choice" data-v="ask"><b>As written</b><span>Some levels interrupt you. You are always warned first.</span></button>
+          <button class="choice" data-v="off"><b>Never</b><span>No one will ask for you. Puzzles only.</span></button>
+        </div>
+      </fieldset>
+
+      <div class="calib-actions">
+        <button class="btn btn-big" id="calibDone">Into the weave</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Reflection                                                    -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="reflection" class="overlay" hidden>
+    <div class="reflect-inner">
+      <p class="eyebrow" id="reflectEyebrow">it carries</p>
+      <h2 id="reflectTitle"></h2>
+      <div class="reflect-grid" id="reflectGrid"></div>
+      <p class="reflect-note" id="reflectNote"></p>
+      <div class="calib-actions">
+        <button class="btn btn-big" id="nextBtn">Next</button>
+        <button class="btn btn-quiet" id="replayBtn">Again</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Settings drawer                                               -->
+  <!-- ------------------------------------------------------------ -->
+  <aside id="drawer" class="drawer" hidden>
+    <h3>World</h3>
+    <div id="drawerBody"></div>
+    <button class="btn btn-quiet" id="drawerClose">Close</button>
+  </aside>
+
+  <p id="live" class="sr-only" aria-live="polite"></p>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

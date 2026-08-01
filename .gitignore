@@ -1,0 +1,7 @@
+# Competition strategy. Not for a public repo while the competition is running.
+BANDWIDTH-SHORTFALL-build-doc.pdf
+hackathon-build-doc.html
+
+# Local tooling
+.claude/
+.DS_Store
