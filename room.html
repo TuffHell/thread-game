@@ -92,6 +92,15 @@
     <p id="svcActionText"></p>
   </div>
 
+  <!-- What is in your hands. Empty means go and make something. -->
+  <div class="carry" id="svcTray" hidden aria-label="What you are carrying">
+    <span class="carry-label">carrying</span>
+    <div class="carry-slots" id="svcTraySlots"></div>
+  </div>
+
+  <!-- Somebody says something when you hand their coffee across. -->
+  <div class="say" id="svcSay" hidden><p id="svcSayText"></p></div>
+
   <div class="freehud" id="freehud" hidden>
     <p class="free-keys"><b>W A S D</b> move &nbsp;·&nbsp; <b>← →</b> or drag to look &nbsp;·&nbsp; <b>E</b> work</p>
     <p class="free-read" id="freeRead"></p>
@@ -107,18 +116,48 @@
   <section id="title" class="overlay">
     <img id="titleBg" class="ovbg" alt="" hidden>
     <div class="title-inner">
-      <p class="eyebrow">an access survey, played</p>
+      <p class="eyebrow">an autistic access survey, played</p>
       <h1 class="wordmark rtb">ROOM TO<br>BREATHE</h1>
-      <p class="strap">A game about rooms, and who they are built for.</p>
+      <!-- Say what it is. The old strapline made you dig for the point, and
+           the point is the best thing about the game. -->
+      <p class="thesis">Autistic people are not too sensitive.<br><b>Rooms are too loud.</b></p>
+      <p class="strap">You are an access surveyor. Four rooms, three autistic
+      adults, and a simulation of what the room actually costs them to be in.
+      You never change the person. You move the furniture.</p>
       <div class="title-actions">
-        <button class="btn btn-big" id="playBtn">Commissions</button>
+        <button class="btn btn-big" id="playBtn">Take a commission</button>
+        <button class="btn btn-quiet" id="openingBtn">Watch Mara try</button>
         <button class="btn btn-quiet" id="helpBtn">How to play</button>
         <button class="btn btn-quiet" id="aboutBtn">About</button>
         <button class="btn btn-quiet" id="settingsBtn">Settings</button>
       </div>
-      <p class="credit">Built on monotropism, the account of autistic attention put
-      forward by Dinah Murray, Mike Lesser and Wenn Lawson. One rule runs the whole
-      simulation: comfort does not average. One bad spot on the route is the visit.</p>
+      <ul class="claims">
+        <li><b>Monotropism, simulated.</b> Attention that runs deep is modelled as
+        a resource that builds while you are left alone and collapses when you are
+        interrupted — after Dinah Murray, Mike Lesser and Wenn Lawson (2005).</li>
+        <li><b>Comfort does not average.</b> Nine sensory fields are combined by
+        their worst channel, not their mean, so a nice rug never cancels a grinder.
+        That one line is the argument the whole game is built on.</li>
+        <li><b>Every level is provably fair.</b> A solver plays each commission in
+        the test suite and has to win it inside the budget, so no room can ship
+        unsolvable — and the same solver is the in-game hint.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- The cold open                                                 -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="opening" class="overlay" hidden>
+    <div class="calib-inner">
+      <p class="eyebrow">that was not a cutscene</p>
+      <h2 id="openingHead">Mara did not reach the counter.</h2>
+      <p class="brief-text" id="openingBody"></p>
+      <div class="claims-inline" id="openingFacts"></div>
+      <div class="calib-actions">
+        <button class="btn btn-big" id="openingFix">Now change the room</button>
+        <button class="btn btn-quiet" id="openingBack">Back to the title</button>
+      </div>
     </div>
   </section>
 
@@ -172,6 +211,7 @@
       <h2 id="debriefTitle"></h2>
       <p class="stars" id="debriefStars"></p>
       <div class="reflect-grid" id="debriefGrid"></div>
+      <div class="afterword" id="debriefAfterword"></div>
       <p class="reflect-note" id="debriefNote"></p>
       <div class="interlude" id="debriefInterlude" hidden></div>
       <div class="calib-actions">

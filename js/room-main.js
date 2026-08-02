@@ -10,11 +10,11 @@ import { Studio } from './studio.js';
 import { KINDS } from './room.js';
 import { DOMAINS } from './field.js';
 import {
-  COMMISSIONS, CAST, GAME, FRAME, INTERLUDES, CODA, loadProgress, saveProgress,
-  isUnlocked, starsFor, finishedRooms
+  COMMISSIONS, CAST, GAME, FRAME, INTERLUDES, CODA, AFTERWORD, loadProgress,
+  saveProgress, isUnlocked, starsFor, finishedRooms
 } from './campaign.js';
 import { PEOPLE } from './person.js';
-import { palette } from './config.js';
+import { palette, settings } from './config.js';
 import { buildHeat } from './plan.js';
 import { View3D } from './view3d.js';
 import { Walker } from './walker.js';
@@ -50,7 +50,8 @@ const LAYER_LABEL = {
   escape: 'retreat', exposure: 'wayfinding'
 };
 
-const OVERLAYS = ['title', 'board', 'brief', 'debrief', 'ending', 'svcDone', 'help', 'about', 'settings'];
+const OVERLAYS = ['title', 'opening', 'board', 'brief', 'debrief', 'ending',
+                  'svcDone', 'help', 'about', 'settings'];
 
 const READABLE = {
   sound: 'noise', light: 'brightness', flicker: 'flicker', glare: 'glare',
@@ -165,8 +166,13 @@ view.setStyle(prefs.style);
 
 window.room = { studio, ui, view, walker, prefs, progress, COMMISSIONS };
 
-document.documentElement.style.setProperty('--bg', palette().bg);
-document.body.style.background = palette().bg;
+// css/room.css owns this game's palette. Stamping THREAD's cold blue onto
+// the body from JS overrode it and left every menu looking like the wrong
+// game, so the room warm dark wins unless a high-contrast mode is chosen.
+const ROOM_BG = '#191016';
+const bg = settings.palette === 'deep' ? ROOM_BG : palette().bg;
+document.documentElement.style.setProperty('--bg', bg);
+document.body.style.background = bg;
 document.documentElement.classList.toggle('text-large', prefs.text === 'large');
 if (prefs.sound) {
   // Only ever after a gesture; browsers block audio before one anyway.
@@ -194,7 +200,8 @@ function setInGame (on) {
   $('viewswitch').hidden = !on;
   $('gamehud').hidden = !on;
   if (!on) {
-    for (const id of ['tray', 'layers', 'verdict', 'meters', 'walkbar', 'interrupt3d', 'signoffBtn']) {
+    for (const id of ['tray', 'layers', 'verdict', 'meters', 'walkbar',
+                      'interrupt3d', 'signoffBtn', 'svcTray', 'svcSay']) {
       $(id).hidden = true;
     }
     $('stage').hidden = true;
@@ -225,6 +232,60 @@ $('helpBack').onclick = () => show('title');
 $('aboutBack').onclick = () => show('title');
 $('settingsBack').onclick = () => show('title');
 $('boardBack').onclick = () => show('title');
+
+/* The cold open ------------------------------------------------------ */
+
+/*
+ * Fifteen seconds of walking into a café that does not work, before any
+ * menu, any explanation and any request for sympathy.
+ *
+ * The subject of this game was previously something you discovered on the
+ * About page. That is backwards: the strongest thing here is that the room's
+ * cost to a specific person is simulated rather than asserted, and the way
+ * to make somebody believe that is to let them watch it happen and then show
+ * them the numbers it came from. Nothing in here is scripted — it replays
+ * the exact path the simulation produced, and stops where it stopped.
+ */
+let opening = false;
+
+function startOpening () {
+  opening = true;
+  commission = COMMISSIONS[0];
+  studio.load(commission);
+  closeOverlays();
+  setInGame(true);
+  walkT = 0;
+  setMode('walk');
+}
+
+function endOpening () {
+  const r = studio.result;
+  const worstDomain = r?.blame ? READABLE[r.blame.domain] ?? r.blame.domain : 'the room';
+  $('openingHead').textContent = r?.ok
+    ? 'Mara got through — this time.'
+    : `Mara stopped ${r?.leg ?? 'on the way in'}.`;
+  $('openingBody').textContent =
+    'That walk was not animation. Every step was scored against nine sensory ' +
+    'fields computed from where the furniture actually is, combined by their ' +
+    'worst channel rather than their average — because attention that runs ' +
+    'deep is dominated by the loudest thing in the room, and a nice rug does ' +
+    'not cancel a grinder. She has come here every Tuesday for two years.';
+  $('openingFacts').innerHTML = [
+    ['what stopped her', worstDomain],
+    ['worst moment', `${Math.round((r?.worst?.load ?? 0) * 100)}% of what she can take`],
+    ['interruptions', String(r?.events?.length ?? 0)],
+    ['asked to cope', 'never — you move the furniture instead']
+  ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+  setInGame(false);
+  show('opening');
+}
+
+$('openingBtn').onclick = startOpening;
+$('openingBack').onclick = () => { opening = false; show('title'); };
+$('openingFix').onclick = () => {
+  opening = false;
+  openBrief(COMMISSIONS[0]);
+};
 
 /* Board ------------------------------------------------------------- */
 
@@ -338,6 +399,15 @@ $('signoffBtn').onclick = () => {
     return `<div class="debrief-person"><dt>${r.person.name}</dt>` +
       cells.map(([k, v]) => `<dd><i>${k}</i><b>${v}</b></dd>`).join('') + '</div>';
   }).join('');
+  // Each of them says one thing, in their own voice, about the room you
+  // just handed back. This is the only place the cast speaks.
+  $('debriefAfterword').innerHTML = studio.results.map(r => {
+    const key = Object.keys(PEOPLE).find(k => PEOPLE[k] === r.person);
+    const line = AFTERWORD[key]?.[commission.room];
+    if (!line) return '';
+    return `<p class="afterword-line"><b>${r.person.name}</b><span>${line}</span></p>`;
+  }).join('');
+
   $('debriefNote').textContent = debriefNote();
   paragraphs('debriefInterlude', INTERLUDES[commission.id]);
 
@@ -436,6 +506,8 @@ function setMode (m) {
   $('freehud').hidden = m !== 'free' && m !== 'service';
   $('svc').hidden = m !== 'service';
   $('svcAction').hidden = true;
+  $('svcTray').hidden = m !== 'service';
+  $('svcSay').hidden = true;
   $('viewService').hidden = !(commission && commission.room === 'cafe' && progress.done[commission.id]);
   $('hintBtn').hidden = m !== 'plan';
   $('hintCard').hidden = true;
@@ -452,6 +524,13 @@ function setMode (m) {
     $(id).classList.toggle('on', key === m);
   }
   if (m !== 'plan') { rebuild3d(); walkT = 0; }
+  if (service && m !== 'service') {
+    // Leaving mid-shift: take the customers and the cups with you.
+    service.clearCustomers();
+    service = null;
+    window.room.service = null;
+    studio.recompute();
+  }
   if (m === 'service') {
     service = new Service(studio.room);
     window.room.service = service;
@@ -597,10 +676,15 @@ function tickService (dt) {
     else if (done.step === 'grind') sound.sfx.grind();
     else if (done.step === 'pull') sound.sfx.pull();
     else if (done.step === 'steam') sound.sfx.steam();
+    else if (done.step === 'clear') sound.sfx.serve(service.flow * 0.4);
     if (service.flow > wasFlow) sound.sfx.flowUp(service.flow);
-    // Customers leaving genuinely changes the field, so recompute it.
-    studio.recompute();
-    view.sync(studio.room);
+    // Somebody says something when you hand their coffee across.
+    if (done.said) showSay(done.said);
+    // People leaving and cups appearing both change the field, so recompute.
+    if (done.completed || done.cleared) {
+      studio.recompute();
+      view.sync(studio.room);
+    }
   }
 
   // The room tone follows how loud it is where you are standing.
@@ -608,9 +692,18 @@ function tickService (dt) {
 
   // Orders, with their steps ticked off as they are worked.
   setHTML('svcOrders', service.orders.slice(0, 6).map(o =>
-    `<div class="svc-order"><b>${o.name}</b><span class="steps">` +
+    `<div class="svc-order${o.ready ? ' ready' : ''}"><b>${o.name}</b><span class="steps">` +
     o.needs.map((n, i) => `<i class="${i < o.done ? 'done' : ''}">•</i>`).join('') +
-    '</span></div>').join('') || '<div class="svc-order"><b>all served</b></div>');
+    '</span></div>').join('') ||
+    (service.messes.length
+      ? `<div class="svc-order"><b>clear ${service.messes.length} cup${service.messes.length === 1 ? '' : 's'}</b></div>`
+      : '<div class="svc-order"><b>all served</b></div>'));
+
+  // Your hands. Four slots, filled as drinks come off the bar.
+  setHTML('svcTraySlots', Array.from({ length: SVC.trayCapacity }, (_, i) =>
+    `<div class="carry-slot${i < service.tray.length ? ' full' : ''}">${
+      i < service.tray.length ? '\u2615' : ''}</div>`).join(''));
+  $('svcTray').hidden = false;
 
   setW('svcFlow', `${Math.round(service.flow * 100)}%`);
   setText('svcFlowNote', service.flow > 0.6
@@ -634,9 +727,26 @@ function tickService (dt) {
 
   setText('freeRead', service.finished
     ? ''
-    : `${service.served} of ${service.target} served`);
+    : (service.served >= service.target
+        ? `${service.messes.length} cup${service.messes.length === 1 ? '' : 's'} still out`
+        : `${service.served} of ${service.target} served` +
+          (service.messes.length ? ` \u00b7 ${service.messes.length} to clear` : '')));
 
   if (service.finished) showServiceReport();
+}
+
+/**
+ * A line of speech, for a moment.
+ *
+ * Long enough to read, short enough that it never becomes something you are
+ * waiting on. Nothing in this mode is allowed to make you wait.
+ */
+let sayTimer = null;
+function showSay (text) {
+  setText('svcSayText', text);
+  $('svcSay').hidden = false;
+  clearTimeout(sayTimer);
+  sayTimer = setTimeout(() => { $('svcSay').hidden = true; }, 2600);
 }
 
 function showServiceReport () {
@@ -645,8 +755,11 @@ function showServiceReport () {
   service.clearCustomers();
   studio.recompute();
   service = null;
+  $('svcTray').hidden = true;
+  $('svcSay').hidden = true;
   $('svcGrid').innerHTML = [
     ['served', r.served, ''],
+    ['cups cleared', r.cleared, ''],
     ['time', r.seconds, 'sec'],
     ['per action', r.perAction, 'sec'],
     ['task switches', r.switches, '']
@@ -654,11 +767,14 @@ function showServiceReport () {
     `<div><dt>${k}</dt><dd>${v}${u ? `<small>${u}</small>` : ''}</dd></div>`).join('');
   $('svcNote').textContent = r.note;
   $('svcEvidence').textContent =
-    'Measured, not asserted: a simulated barista who batches finishes this ' +
-    'morning in 48 seconds; one who switches between orders takes 74. Moving ' +
-    'the grinder into a far corner to protect Mara costs a batching barista ' +
-    'about four per cent. The layout that is kinder to her is almost free to ' +
-    'work in — if you are allowed to stay on one thing.';
+    'Measured, not asserted, and rerun every time the code changes: a ' +
+    'simulated barista who fills the tray, walks it out and collects the ' +
+    'cups in runs finishes this morning in 66 seconds. One who makes each ' +
+    'coffee and delivers it before starting the next takes 89, and spends ' +
+    'the shift at a tenth of the flow. Exiling the grinder to a far corner ' +
+    'to protect Mara costs the batching barista eleven per cent. The layout ' +
+    'that is kinder to her is nearly free to work in — if you are allowed ' +
+    'to stay on one thing.';
   setInGame(false);
   show('svcDone');
 }
@@ -706,11 +822,13 @@ function frame (now) {
         view.placeVisitor(null);
         walker.update(dt, studio.room, studio.grid);
         view.setFreeCamera(walker.pos, walker.yaw);
+        view.setCarry(service ? service.tray.length : 0);
         tickService(dt);
       } else if (mode === 'free') {
         view.setCutaway(false);
         view.setFloorSurvey(false);
         view.placeVisitor(null);
+        view.setCarry(0);
         walker.update(dt, studio.room, studio.grid);
         view.setFreeCamera(walker.pos, walker.yaw);
 
@@ -728,7 +846,11 @@ function frame (now) {
         view.setCutaway(false);
         view.setFloorSurvey(false);
         view.placeVisitor(null);
-        walkT = Math.min(1, walkT + dt / Math.max(2600, path.length * 46));
+        // Slower for the cold open: it is the first thing anyone sees and it
+        // is meant to be watched, not skipped past.
+        const pace = opening ? Math.max(11000, path.length * 130)
+                             : Math.max(2600, path.length * 46);
+        walkT = Math.min(1, walkT + dt / pace);
         view.setWalkCamera(path, walkT);
         setW('walkFill', `${Math.round(walkT * 100)}%`);
         $('walkbar').classList.toggle('bad', !studio.result?.ok);
@@ -746,6 +868,8 @@ function frame (now) {
         setText('walkNote', walkT >= 1
           ? (studio.verdict()?.headline ?? '')
           : `walking the route ${studio.person.name} actually took`);
+        // The cold open ends where the walk ends, and hands over the job.
+        if (opening && walkT >= 1) { opening = false; endOpening(); }
       }
       view.render();
     }

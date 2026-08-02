@@ -49,8 +49,8 @@ function cafe () {
     thing('window', 910, 320, { movable: false }),
     thing('window', 910, 520, { movable: false }),
 
-    thing('grinder', 640, 220),
-    thing('machine', 780, 165, { movable: false }),
+    thing('grinder', 648, 142),
+    thing('machine', 745, 138, { movable: false }),
     thing('speaker', 200, 90),
     thing('speaker', 830, 620),
     thing('fluorescent', 380, 240),
@@ -172,7 +172,7 @@ function hall () {
   r.things = [
     thing('door', 80, 650, { movable: false }),
     thing('counter', 880, 140, { movable: false }),
-    thing('machine', 970, 190, { movable: false }),
+    thing('machine', 928, 148, { movable: false }),
     thing('window', 1030, 360, { movable: false }),
 
     thing('speaker', 160, 100),

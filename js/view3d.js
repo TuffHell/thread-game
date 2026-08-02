@@ -13,7 +13,7 @@
  */
 
 import * as THREE from '../vendor/three.module.js';
-import { def, KINDS, MATERIALS } from './room.js';
+import { def, KINDS, MATERIALS, supportUnder, COUNTERTOP } from './room.js';
 
 export const RENDER_W = 480;
 export const RENDER_H = 270;
@@ -28,15 +28,15 @@ const WALL_H = 285;
 // Cool, slightly desaturated, with warm accents held back for light sources.
 // Kept small on purpose: a tight palette is most of what reads as authored.
 const PAL = {
-  floor:      0xc9a179,
-  floorAlt:   0xd6b088,
-  wallTile:   0xe4e0d2,
-  wallGlass:  0xa8d2dd,
-  wallBrick:  0xc07a56,
-  wallWood:   0xc08f52,
-  wallPlaster:0xdcd3bd,
-  wallAcoustic:0x7d9b84,
-  ceiling:    0xf3ead8,
+  floor:      0xd8ae82,
+  floorAlt:   0xe4bd90,
+  wallTile:   0xefe9d8,
+  wallGlass:  0xb4dde8,
+  wallBrick:  0xcf8760,
+  wallWood:   0xcf9c5b,
+  wallPlaster:0xe9dfc6,
+  wallAcoustic:0x8bab92,
+  ceiling:    0xfaf2e2,
   sky:        0xa9c9d6,
   metal:      0xc3ccd2,
   dark:       0x5a4a42,
@@ -182,6 +182,17 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 
+/** One takeaway cup, used both on the counter and in your hands. */
+function cupMesh () {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(5, 4, 12, 8), mat(0xf2ece0));
+  body.position.y = 6;
+  const lid = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.4, 2, 8), mat(0x8a5a34));
+  lid.position.y = 13;
+  g.add(body, lid);
+  return g;
+}
+
 /* ------------------------------------------------------------------ */
 
 export class View3D {
@@ -302,9 +313,9 @@ export class View3D {
 
     // Light. Kept few and hard, because soft global illumination reads as
     // mush once you are down at this resolution.
-    s.add(new THREE.AmbientLight(0xffeedd, 2.0));
-    s.add(new THREE.HemisphereLight(0xfff3e0, 0xb08a63, 1.3));
-    const key = new THREE.DirectionalLight(0xffe9c4, 1.8);
+    s.add(new THREE.AmbientLight(0xfff0dc, 2.6));
+    s.add(new THREE.HemisphereLight(0xfff6e8, 0xd0a274, 1.8));
+    const key = new THREE.DirectionalLight(0xfff0d2, 2.1);
     key.position.set(cx - 400, 900, cz - 500);
     key.castShadow = true;
     key.shadow.mapSize.set(512, 512);   // plenty at 480x270
@@ -552,7 +563,7 @@ export class View3D {
         break;
       }
       case 'grinder': {
-        const H = 105;
+        const H = 0;
         g.add(box(30, 16, 30, 0x55585c, H));            // base
         g.add(box(24, 34, 26, 0x8d949a, H + 16));       // body
         g.add(box(20, 5, 20, 0x55585c, H + 48));        // collar
@@ -567,7 +578,7 @@ export class View3D {
         break;
       }
       case 'machine': {
-        const H = 105;                     // stands on the counter top
+        const H = 0;   // the group is lifted onto whatever is underneath
         g.add(box(74, 44, 46, 0xd8dce0, H));
         g.add(box(70, 12, 42, 0x8d949a, H + 44));       // top tray
         g.add(box(74, 9, 48, 0x6f767c, H - 4));         // drip tray
@@ -589,11 +600,25 @@ export class View3D {
         break;
       }
       case 'speaker':
-        g.add(box(24, 34, 20, PAL.dark, 190));
+        // On a stand, because a box hanging in the air at head height was
+        // the single most obviously wrong thing in the room.
+        g.add(cyl(14, 3, 0x3a3a3c, 0, 10));
+        g.add(cyl(3, 150, 0x55585c, 3));
+        g.add(box(24, 34, 20, PAL.dark, 153));
+        g.add(box(18, 18, 2, 0x1e1e20, 161)).position.z = 11;
         break;
-      case 'fluorescent':
-        g.add(box(D.r * 2, 8, 34, 0xf2f6ff, WALL_H - 26));
+      case 'fluorescent': {
+        // Hung from the ceiling on two drops.
+        const yTop = WALL_H - 26;
+        for (const off of [-D.r * 0.55, D.r * 0.55]) {
+          const drop = cyl(1.6, 26, 0xb9c2c9, yTop + 8);
+          drop.position.x = off;
+          g.add(drop);
+        }
+        g.add(box(D.r * 2, 8, 34, 0xf2f6ff, yTop));
+        g.add(box(D.r * 2 + 6, 5, 38, 0xd7dde4, yTop + 8));
         break;
+      }
       case 'lamp':
         g.add(cyl(4, 120, PAL.metal));
         g.add(cyl(18, 20, PAL.warm, 120, 8));
@@ -756,12 +781,34 @@ export class View3D {
         }
         break;
 
+      case 'mess': {
+        // A used cup and a saucer, on the table if there is one under it.
+        g.add(cyl(15, 2, 0xeae3d2, 0, 10));
+        g.add(cyl(8, 11, 0xf2ece0, 2, 8));
+        g.add(cyl(6.5, 2, 0x7a5636, 11, 8));      // the dregs
+        break;
+      }
+
       default:
         g.add(box(D.r, 60, D.r, PAL.metal));
     }
 
     bake(g);
-    g.position.set(t.x, 0, t.y);
+    // Sit it on whatever is underneath. Worktop things get a stub leg when
+    // they end up on the floor, so a grinder dragged off the bar reads as
+    // standing on a crate rather than sunk into the boards.
+    const { top } = supportUnder(this.room, t.x, t.y, t);
+    if (COUNTERTOP.has(t.kind) && top === 0) {
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(D.r * 1.6, 64, D.r * 1.6), mat(0x7a5636));
+      crate.position.y = 32;
+      crate.castShadow = true; crate.receiveShadow = true;
+      g.add(crate);
+      g.position.set(t.x, 64, t.y);
+      g.userData.crated = true;
+    } else {
+      g.position.set(t.x, top, t.y);
+      g.userData.crated = false;
+    }
     g.userData.thingId = t.id;
     this.scene.add(g);
     this.thingMeshes.set(t.id, g);
@@ -827,7 +874,21 @@ export class View3D {
       const m = this.thingMeshes.get(t.id);
       if (!t.placed) { if (m) { this.scene.remove(m); this.thingMeshes.delete(t.id); } continue; }
       if (!m) { this.addThing(t); continue; }
-      m.position.set(t.x, 0, t.y);
+      // The height has to follow too: drag the machine onto the bar and it
+      // should climb onto it, drag it off and it should come down.
+      const { top } = supportUnder(room, t.x, t.y, t);
+      const want = COUNTERTOP.has(t.kind) && top === 0 ? 64 : top;
+      if (Math.abs(m.position.y - want) > 1 && !m.userData.rebuilt) {
+        // A worktop thing that has just lost or gained its crate needs the
+        // model back, not just a new height.
+        if (COUNTERTOP.has(t.kind) && (want === 64) !== (m.userData.crated === true)) {
+          this.scene.remove(m);
+          this.thingMeshes.delete(t.id);
+          this.addThing(t);
+          continue;
+        }
+      }
+      m.position.set(t.x, want, t.y);
     }
     if (this.heatTex) this.heatTex.needsUpdate = true;
   }
@@ -908,6 +969,45 @@ export class View3D {
     // which is why W walked away from wherever you were facing. The half
     // turn reconciles three.js looking down -Z with the room's convention.
     this.camera.rotateY(yaw + Math.PI);
+  }
+
+  /**
+   * The cups in your hands, held in front of the camera.
+   *
+   * Parented to the camera rather than placed in the world, so they ride
+   * along with the view instead of being chased by it. It is a small thing
+   * and it is most of what makes carrying feel like carrying: the drinks are
+   * yours until you give them to somebody.
+   */
+  setCarry (n) {
+    if (!this.carry) {
+      this.carry = new THREE.Group();
+      // Low and slightly forward — held at chest height, in shot but not in
+      // the way of the room.
+      this.carry.position.set(0, -26, -46);
+      this.camera.add(this.carry);
+      this.scene.add(this.camera);
+      this.carryCups = [];
+      for (let i = 0; i < 4; i++) {
+        const cup = new THREE.Group();
+        cup.add(cupMesh());
+        cup.position.set((i % 2 ? 1 : -1) * 9, (i > 1 ? 9 : 0), (i > 1 ? -8 : 0));
+        cup.visible = false;
+        this.carry.add(cup);
+        this.carryCups.push(cup);
+      }
+      const tray = new THREE.Mesh(new THREE.BoxGeometry(34, 2.5, 26), mat(0x8a5a34));
+      tray.position.y = -3;
+      this.carry.add(tray);
+      this.carryTray = tray;
+    }
+    this.carry.visible = n > 0;
+    for (let i = 0; i < this.carryCups.length; i++) {
+      this.carryCups[i].visible = i < n;
+    }
+    // A gentle bob so it does not look welded to the screen.
+    this.carry.rotation.z = Math.sin(performance.now() / 620) * 0.035;
+    this.carry.position.y = -26 + Math.sin(performance.now() / 480) * 0.9;
   }
 
   /**

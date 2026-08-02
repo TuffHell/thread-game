@@ -90,6 +90,38 @@ export const CODA =
   'is for. That is not a small thing and it is not a finished thing. There ' +
   'are more rooms.';
 
+/**
+ * What each of them says once the room works.
+ *
+ * Never "thank you for making this accessible". Nobody talks like that about
+ * a café, and having them say it would turn three people into a testimonial.
+ * They say what anyone says when a room stops being an obstacle: something
+ * about the coffee, or nothing much at all, which is the point.
+ *
+ * Keyed by room so the same person says something different in the library
+ * than in the hall.
+ */
+export const AFTERWORD = {
+  mara: {
+    cafe: '\u201cI stayed for the second one. I never stay for the second one.\u201d',
+    hall: '\u201cI could hear the person next to me. In here. That is genuinely new.\u201d',
+    library: '\u201cIt is not my room, but I would sit in it.\u201d',
+    clinic: '\u201cStill a clinic. But I did not have to stand outside it first.\u201d'
+  },
+  ollie: {
+    library: '\u201cGot four hours in. Did not notice the time, which is the good kind.\u201d',
+    hall: '\u201cI can look up from the page without it hurting. That is the whole thing.\u201d',
+    cafe: '\u201cI would revise here. I would not have said that last month.\u201d',
+    clinic: '\u201cI read a whole leaflet in the waiting room. Voluntarily.\u201d'
+  },
+  jun: {
+    clinic: '\u201cI went in at the time on the letter. First time in about four years.\u201d',
+    hall: '\u201cI stayed for the whole thing. I had planned to leave at the interval.\u201d',
+    cafe: '\u201cI sat with my back to the room. Turns out I did not need to.\u201d',
+    library: '\u201cQuiet in the way a place is quiet, not the way you have to be.\u201d'
+  }
+};
+
 /** The recurring cast. Mechanical profiles live in person.js. */
 export const CAST = {
   mara: {

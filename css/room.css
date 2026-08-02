@@ -519,8 +519,8 @@ html.text-large { font-size: 118%; }
   pointer-events: none;
   z-index: 2;
   background:
-    radial-gradient(ellipse at 50% 40%, transparent 52%, rgba(38, 22, 8, 0.38) 100%),
-    linear-gradient(rgba(255, 178, 96, 0.05), rgba(20, 12, 6, 0.12));
+    radial-gradient(ellipse at 50% 42%, transparent 62%, rgba(52, 30, 12, 0.26) 100%),
+    linear-gradient(rgba(255, 206, 140, 0.06), rgba(38, 22, 10, 0.07));
 }
 
 /* Painted backdrops behind overlay text, when assets exist. */
@@ -680,7 +680,7 @@ html.text-large { font-size: 118%; }
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: clamp(74px, 13vh, 128px);
+  bottom: clamp(126px, 20vh, 190px);
   display: flex;
   align-items: center;
   gap: 14px;
@@ -872,4 +872,277 @@ body.ingame .btn-quiet:hover {
    of the tray. Lift it to the row above, next to the hint. */
 @media (max-width: 860px) {
   .signoff { bottom: 96px; }
+}
+
+/* ---------------------------------------------------------------- */
+/* What is in your hands                                             */
+/* ---------------------------------------------------------------- */
+
+/*
+ * The tray sits low and centre, where your hands would be. Four slots,
+ * always visible while you are working a shift, because the whole decision
+ * the mode asks you to make — keep making, or go and deliver — is readable
+ * from how full it is.
+ */
+.carry {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: clamp(64px, 11vh, 96px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 4;
+}
+.carry-label {
+  font-size: 0.56rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #cfe0f0;
+  opacity: 0.75;
+  text-shadow: 0 1px 3px rgba(4, 8, 12, 0.9);
+}
+.carry-slots { display: flex; gap: 7px; }
+.carry-slot {
+  width: 26px;
+  height: 30px;
+  border-radius: 4px;
+  border: 1px solid rgba(170, 210, 245, 0.28);
+  background: rgba(10, 18, 28, 0.55);
+  display: grid;
+  place-items: center;
+  font-size: 0.9rem;
+  line-height: 1;
+  transition: transform var(--t-fast) var(--ease), border-color var(--t-fast);
+}
+.carry-slot.full {
+  border-color: #ffc46b;
+  background: rgba(58, 40, 18, 0.75);
+  transform: translateY(-3px);
+}
+
+/* ---------------------------------------------------------------- */
+/* Somebody saying something                                         */
+/* ---------------------------------------------------------------- */
+
+/*
+ * A speech bubble, briefly, when you hand a coffee over. Nobody thanks the
+ * room; they thank you for the coffee, which is the point — the survey
+ * worked precisely to the extent that nothing about the visit was worth
+ * remarking on.
+ */
+.say {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: clamp(150px, 26vh, 240px);
+  max-width: min(360px, calc(100vw - 48px));
+  padding: 12px 18px;
+  border-radius: 16px 16px 16px 4px;
+  background: rgba(248, 244, 234, 0.95);
+  border: 2px solid #2f2119;
+  box-shadow: 0 6px 0 rgba(20, 12, 6, 0.35);
+  pointer-events: none;
+  z-index: 6;
+  animation: say-pop var(--t-mid, 260ms) var(--ease, cubic-bezier(0.16, 1, 0.3, 1));
+}
+.say p {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1rem;
+  line-height: 1.35;
+  color: #2f2119;
+  text-align: center;
+}
+@keyframes say-pop {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.94); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .say { animation: none; }
+}
+
+/* ================================================================== */
+/* Warm it up                                                         */
+/* ================================================================== */
+
+/*
+ * The shared tokens were written for THREAD, which was a cold blue thing at
+ * the bottom of the sea. This is a café on a Tuesday morning, and it was
+ * inheriting the wrong mood entirely — slate blue chrome around a room full
+ * of warm wood. Room to Breathe overrides the palette rather than editing
+ * THREAD's, so the two can look like what they each are.
+ *
+ * Warm dark, not black: a plum-brown that the café's oranges and creams sit
+ * inside instead of fighting. Rounder corners and heavier borders, because
+ * the whole point of the reference art is that things look handled and soft
+ * rather than engineered.
+ */
+:root {
+  --bg: #191016;
+  --bg-glow: #2b1d22;
+  --ink: #f7ece0;
+  --ink-soft: #c2a893;
+  --surface: rgba(44, 30, 32, 0.90);
+  --edge: rgba(255, 206, 156, 0.22);
+  --accent: #7fd4c1;
+
+  --r-sm: 12px;
+  --r-md: 18px;
+  --r-lg: 26px;
+}
+
+/* Panels get a soft body and a real edge instead of a hairline. */
+.svc, .verdict, .interrupt3d, .hintcard, .meters {
+  border-width: 2px;
+  box-shadow: 0 6px 0 rgba(18, 10, 12, 0.30);
+}
+
+/* Buttons read as pressable objects. */
+.btn, .icon-btn, .tray-item, .vbtn, .job {
+  border-radius: 999px;
+}
+.tray-item, .job { border-radius: var(--r-md); }
+.btn-big {
+  box-shadow: 0 4px 0 rgba(18, 10, 12, 0.45);
+  transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast);
+}
+.btn-big:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 rgba(18, 10, 12, 0.45);
+}
+
+/* The view switcher is the most-touched control in the game. */
+.viewswitch {
+  border-width: 2px;
+  box-shadow: 0 4px 0 rgba(18, 10, 12, 0.32);
+}
+.vbtn.on { background: #ffd9a0; color: #2a1a14; }
+
+/* Refuge teal and warm amber are the only two accents; everything else is
+   wood, cream and shadow. */
+.m-fill { background: #ffc46b; }
+.m-fill.teal { background: #7fd4c1; }
+.svc-order.ready b { color: #ffd9a0; }
+.svc-order.ready .steps i.done { color: #ffd9a0; }
+/* A drink that is made and on your tray is waiting on you, not on the bar. */
+.svc-order.ready::after {
+  content: '\2615';
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+/* Each of the cast, saying one thing, after the room is signed off. */
+.afterword { margin: 14px 0 4px; display: flex; flex-direction: column; gap: 10px; }
+.afterword-line {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 15px;
+  border-radius: var(--r-md);
+  background: rgba(58, 40, 34, 0.55);
+  border-left: 3px solid #ffc46b;
+}
+.afterword-line b {
+  font-size: 0.66rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #ffd9a0;
+  font-weight: 600;
+}
+.afterword-line span {
+  font-family: var(--serif);
+  font-size: 1rem;
+  line-height: 1.45;
+  color: #f2e6d8;
+}
+
+/* ---------------------------------------------------------------- */
+/* Saying what it is, on the way in                                  */
+/* ---------------------------------------------------------------- */
+
+/*
+ * The title screen used to be coy — "a game about rooms, and who they are
+ * built for" — and you had to open the About page to learn the subject. The
+ * subject is the strongest thing here. It goes first now, in the largest
+ * type on the screen after the wordmark, phrased as the claim the game
+ * actually makes rather than as a topic it is adjacent to.
+ */
+.thesis {
+  margin: 18px 0 14px;
+  font-family: var(--serif);
+  font-size: clamp(1.15rem, 1rem + 1.4vw, 1.72rem);
+  line-height: 1.32;
+  color: var(--ink-soft);
+  max-width: 22ch;
+}
+.thesis b {
+  display: inline-block;
+  color: #ffd9a0;
+  font-weight: 400;
+}
+
+/* Three claims, each of which is checkable, rather than one paragraph of
+   credit nobody reads. */
+.claims {
+  list-style: none;
+  margin: 26px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  max-width: 60ch;
+}
+.claims li {
+  position: relative;
+  padding: 10px 14px 10px 16px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: rgba(58, 40, 34, 0.42);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.claims li b { color: #f7ece0; font-weight: 600; }
+
+@media (max-width: 700px) {
+  .claims li { font-size: 0.76rem; padding: 8px 12px; }
+}
+
+/* The facts behind the cold open, laid out so they read as measurements. */
+.claims-inline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  margin: 20px 0 4px;
+  background: var(--edge);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.claims-inline > div {
+  background: rgba(30, 20, 22, 0.92);
+  padding: 13px 15px;
+}
+.claims-inline dt {
+  font-size: 0.58rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 5px;
+}
+.claims-inline dd {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1.02rem;
+  line-height: 1.3;
+  color: #ffd9a0;
+}
+
+/* The live meters sat on top of the sound and board buttons in a narrow
+   window. Below the header row, where the order list also lives. */
+@media (max-width: 860px) {
+  .meters { top: 132px; }
 }

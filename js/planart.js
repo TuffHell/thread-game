@@ -320,6 +320,17 @@ const S = {
     '..KKKKKK..'
   ],
 
+  mess: [
+    '..KKKK..',
+    '.KccccK.',
+    'KcXXXXcK',
+    'KcXwwXcK',
+    'KcXwwXcK',
+    'KcXXXXcK',
+    '.KccccK.',
+    '..KKKK..'
+  ],
+
   customer: [
     '..KKKKKK..',
     '.KBBBBBBK.',

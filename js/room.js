@@ -101,6 +101,12 @@ export const KINDS = {
               emits: { crowd: 0.34, sound: 0.16 },
               radius: { crowd: 190, sound: 200 } },
 
+  // A used cup on a table, left behind when somebody finishes and goes.
+  // It is clutter until you clear it, which is why the round is not over
+  // when the last coffee is handed across.
+  mess: { label: 'Used cup', r: 20, cost: 0, movable: false,
+          emits: { clutter: 0.18 }, clutterRadius: 130 },
+
   // A fitted cover for a fluorescent tube. The real object exists, is cheap,
   // and is one of the first things sensory-friendly refits actually do:
   // it kills the flicker and softens the light without rewiring anything.
@@ -151,6 +157,49 @@ export function room (spec) {
 }
 
 export const def = t => KINDS[t.kind];
+
+/**
+ * How high the top of a thing is, if you can put something on it.
+ *
+ * Only a few things are surfaces, and their heights are the ones the 3D
+ * models are actually built to.
+ */
+export const SURFACE_TOP = {
+  counter: 105,
+  seat: 74,      // a café table
+  shelf: 190
+};
+
+/**
+ * What a thing at (x, y) would be standing on.
+ *
+ * The espresso machine used to be drawn at counter height whatever was
+ * underneath it, so dragging it off the counter left it hanging in the air
+ * at chest height with nothing below — which is exactly the thing that makes
+ * a room read as a diagram rather than a place. Now everything asks the room
+ * what it is resting on, and if the answer is nothing it rests on the floor.
+ */
+export function supportUnder (r, x, y, ignore = null) {
+  let top = 0, on = null;
+  for (const t of r.things) {
+    if (!t.placed || t === ignore || t.id === ignore) continue;
+    const h = SURFACE_TOP[t.kind];
+    if (h == null || h <= top) continue;
+    const D = KINDS[t.kind];
+    // The footprint has to match the model, or things sit on air just past
+    // the end of a bar. A counter is drawn 2r wide by 1.25r deep; a table is
+    // round. A little slack either way, because fighting the player over
+    // four centimetres is not a game.
+    const halfW = (t.kind === 'counter' ? D.r : D.r * 0.8) + 8;
+    const halfD = (t.kind === 'counter' ? D.r * 0.625 : D.r * 0.8) + 8;
+    if (Math.abs(x - t.x) > halfW || Math.abs(y - t.y) > halfD) continue;
+    top = h; on = t;
+  }
+  return { top, on };
+}
+
+/** Things that belong on a worktop rather than on the floor. */
+export const COUNTERTOP = new Set(['machine', 'grinder']);
 
 export function refuges (r) {
   return r.things.filter(t => t.placed && def(t).refuge);

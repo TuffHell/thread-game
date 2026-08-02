@@ -6,10 +6,12 @@
  * a testable claim, so it is tested. Two simulated players work identical
  * mornings in an identical café:
  *
- *   BATCHER   does every available grind, then every pull, then every steam,
- *             then every serve. Monotropic play.
+ *   BATCHER   fills the tray with grinds, then pulls, then steams, then walks
+ *             the whole tray out and hands them over, then collects the cups.
+ *             Monotropic play.
  *   SWITCHER  takes whatever order is oldest and pushes it one step, round
- *             robin. Classic kitchen-game play.
+ *             robin — make one, walk it out, come back. Classic kitchen-game
+ *             play, and now literally more walking as well as more switching.
  *
  * If the switcher wins, or ties, the mechanic is decoration and the claim in
  * service.js is false.
@@ -37,12 +39,16 @@ function runMorning (pickNext, opts = {}) {
     const choice = pickNext(svc);
     if (!choice) { svc.update(TICK, x, y); continue; }
 
-    const st = svc.stationFor(choice.step);
+    const st = svc.stationFor(choice.step, choice.order);
     if (!st) { svc.update(TICK, x, y); continue; }
 
+    // Serving and clearing happen at a person or a cup, not at the bar.
+    const near = choice.step === 'serve' || choice.step === 'clear' ? 100 : 140;
+
     // Walk to it.
-    while (Math.hypot(x - st.x, y - st.y) > 140 && guard++ < 200000) {
+    while (Math.hypot(x - st.x, y - st.y) > near && guard++ < 200000) {
       const d = Math.hypot(st.x - x, st.y - y);
+      if (d < 1e-6) break;
       const step = Math.min(d, speed * TICK);
       x += (st.x - x) / d * step;
       y += (st.y - y) / d * step;
@@ -97,8 +103,14 @@ check('both approaches finish the morning', b.served === 8 && s.served === 8,
 check('batching is meaningfully faster than task-switching', bSec < sSec * 0.92,
   `${bSec}s vs ${sSec}s (${Math.round((1 - bSec / sSec) * 100)}% quicker)`);
 
-check('batching builds flow, switching destroys it', b.flow > s.flow + 0.25,
-  `${b.flow.toFixed(2)} vs ${s.flow.toFixed(2)}`);
+// Mean flow across the whole shift, not the reading at the end. Both players
+// finish on a run of the same action — collecting the last few cups — so the
+// final number flatters the switcher for the one stretch where they stopped
+// switching. What the mode actually claims is about the whole morning.
+const bFlow = b.flowArea / b.elapsed, sFlow = s.flowArea / s.elapsed;
+check('batching holds flow across the shift, switching keeps losing it',
+  bFlow > sFlow + 0.2,
+  `mean ${bFlow.toFixed(2)} vs ${sFlow.toFixed(2)}`);
 
 check('switching really does switch more', s.switches > b.switches * 2,
   `${s.switches} vs ${b.switches}`);
@@ -122,9 +134,11 @@ const speed = 210 / 1000;
 while (!svcFar.finished && guard++ < 200000) {
   const choice = batcher(svcFar);
   if (!choice) { svcFar.update(TICK, fx, fy); continue; }
-  const st = svcFar.stationFor(choice.step);
-  while (Math.hypot(fx - st.x, fy - st.y) > 140 && guard++ < 200000) {
+  const st = svcFar.stationFor(choice.step, choice.order);
+  const nearF = choice.step === 'serve' || choice.step === 'clear' ? 100 : 140;
+  while (st && Math.hypot(fx - st.x, fy - st.y) > nearF && guard++ < 200000) {
     const d = Math.hypot(st.x - fx, st.y - fy);
+    if (d < 1e-6) break;
     const step = Math.min(d, speed * TICK);
     fx += (st.x - fx) / d * step; fy += (st.y - fy) / d * step;
     svcFar.update(TICK, fx, fy);
