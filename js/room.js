@@ -136,7 +136,9 @@ export function room (spec) {
     // What the player may spend on changes. Real budgets are the reason
     // accessibility work does not happen, so it is a resource here too.
     budget: spec.budget ?? 4,
-    tray: spec.tray ?? []
+    tray: spec.tray ?? [],
+    // Which painted view hangs outside the windows.
+    outside: spec.outside ?? 'street'
   };
 }
 

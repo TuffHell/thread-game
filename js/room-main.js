@@ -18,6 +18,7 @@ import { palette } from './config.js';
 import { buildHeat } from './plan.js';
 import { View3D } from './view3d.js';
 import { Walker } from './walker.js';
+import { Service, STEP_LABEL, MODEL as SVC } from './service.js';
 import { evaluate, bestMove, applyMove } from './solver.js';
 import { SOURCES } from './fragments.js';
 
@@ -29,7 +30,7 @@ const LAYER_LABEL = {
   escape: 'retreat', exposure: 'wayfinding'
 };
 
-const OVERLAYS = ['title', 'board', 'brief', 'debrief', 'ending', 'help', 'about', 'settings'];
+const OVERLAYS = ['title', 'board', 'brief', 'debrief', 'ending', 'svcDone', 'help', 'about', 'settings'];
 
 const READABLE = {
   sound: 'noise', light: 'brightness', flicker: 'flicker', glare: 'glare',
@@ -43,8 +44,8 @@ const READABLE = {
 
 const PREFS_KEY = 'room-to-breathe.prefs';
 const prefs = (() => {
-  try { return { style: 'crisp', motion: 'on', text: 'normal', ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }; }
-  catch { return { style: 'crisp', motion: 'on', text: 'normal' }; }
+  try { return { style: 'pixel', motion: 'on', text: 'normal', ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }; }
+  catch { return { style: 'pixel', motion: 'on', text: 'normal' }; }
 })();
 function savePrefs () {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* fine */ }
@@ -61,6 +62,7 @@ let walkT = 0;
 let orbit = -Math.PI / 4;
 let briefTarget = null;
 const walker = new Walker();
+let service = null;
 
 /* ------------------------------------------------------------------ */
 /* Interface plumbing                                                  */
@@ -365,14 +367,17 @@ function setMode (m) {
   $('stage').hidden = m !== 'plan';
   gl.hidden = m === 'plan';
   $('grade').hidden = m === 'plan';
-  $('freehud').hidden = m !== 'free';
+  $('freehud').hidden = m !== 'free' && m !== 'service';
+  $('svc').hidden = m !== 'service';
+  $('svcAction').hidden = true;
+  $('viewService').hidden = !(commission && commission.room === 'cafe' && progress.done[commission.id]);
   $('hintBtn').hidden = m !== 'plan';
   $('hintCard').hidden = true;
   $('walkbar').hidden = m !== 'walk';
-  $('meters').hidden = m !== 'walk';
+  $('meters').hidden = m !== 'walk' && m !== 'look';
   $('tray').hidden = m !== 'plan';
   $('layers').hidden = m !== 'look';
-  $('verdict').hidden = m === 'walk' || m === 'free';
+  $('verdict').hidden = m !== 'plan' && m !== 'look';
   $('probe').style.display = m === 'plan' ? '' : 'none';
   $('signoffBtn').hidden = !(m === 'plan' && studio.ready());
   $('interrupt3d').hidden = true;
@@ -381,7 +386,11 @@ function setMode (m) {
     $(id).classList.toggle('on', key === m);
   }
   if (m !== 'plan') { rebuild3d(); walkT = 0; }
-  if (m === 'free') {
+  if (m === 'service') {
+    service = new Service(studio.room);
+    window.room.service = service;
+  }
+  if (m === 'free' || m === 'service') {
     // Start at the door facing the counter, the way anyone entering would.
     const d = studio.room.door, g2 = studio.room.goal;
     const len = Math.hypot(g2.x - d.x, g2.y - d.y) || 1;
@@ -398,6 +407,7 @@ $('viewPlan').onclick = () => setMode('plan');
 $('viewRoom').onclick = () => setMode('look');
 $('viewWalk').onclick = () => setMode('walk');
 $('viewFree').onclick = () => setMode('free');
+$('viewService').onclick = () => setMode('service');
 
 const origRecompute = studio.recompute.bind(studio);
 studio.recompute = function () {
@@ -442,7 +452,13 @@ gl.addEventListener('pointermove', e => {
 const WALK_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 window.addEventListener('keydown', e => {
-  if (mode !== 'free' || !WALK_KEYS.has(e.code)) return;
+  if (mode !== 'free' && mode !== 'service') return;
+  if (e.code === 'KeyE' && mode === 'service' && service) {
+    e.preventDefault();
+    service.begin(walker.x, walker.y);
+    return;
+  }
+  if (!WALK_KEYS.has(e.code)) return;
   e.preventDefault();
   walker.down(e.code);
 });
@@ -496,6 +512,69 @@ $('hintDo').onclick = () => {
   ui.syncTray(studio);
 };
 
+/* The Quiet Service --------------------------------------------------- */
+
+function tickService (dt) {
+  if (!service) return;
+  const done = service.update(dt, walker.x, walker.y);
+
+  // Orders, with their steps ticked off as they are worked.
+  $('svcOrders').innerHTML = service.orders.slice(0, 6).map(o =>
+    `<div class="svc-order"><b>${o.name}</b><span class="steps">` +
+    o.needs.map((n, i) => `<i class="${i < o.done ? 'done' : ''}">•</i>`).join('') +
+    '</span></div>').join('') || '<div class="svc-order"><b>all served</b></div>';
+
+  $('svcFlow').style.width = `${service.flow * 100}%`;
+  $('svcFlowNote').textContent = service.flow > 0.6
+    ? 'deep in it — actions are quick'
+    : (service.flow > 0.2 ? 'building' : 'do the same thing twice to build it');
+
+  // What is happening under your hands.
+  const w = service.working;
+  if (w) {
+    $('svcAction').hidden = false;
+    $('svcRing').style.height = `${Math.min(100, w.t / w.need * 100)}%`;
+    $('svcActionText').textContent = STEP_LABEL[w.step];
+  } else {
+    const near = service.atHand(walker.x, walker.y);
+    $('svcAction').hidden = !near;
+    if (near) {
+      $('svcRing').style.height = '0%';
+      $('svcActionText').textContent = `${STEP_LABEL[near.step]} — press E`;
+    }
+  }
+
+  $('freeRead').textContent = service.finished
+    ? ''
+    : `${service.served} of ${service.target} served`;
+
+  if (service.finished) showServiceReport();
+}
+
+function showServiceReport () {
+  const r = service.report();
+  service = null;
+  $('svcGrid').innerHTML = [
+    ['served', r.served, ''],
+    ['time', r.seconds, 'sec'],
+    ['per action', r.perAction, 'sec'],
+    ['task switches', r.switches, '']
+  ].map(([k, v, u]) =>
+    `<div><dt>${k}</dt><dd>${v}${u ? `<small>${u}</small>` : ''}</dd></div>`).join('');
+  $('svcNote').textContent = r.note;
+  $('svcEvidence').textContent =
+    'Measured, not asserted: a simulated barista who batches finishes this ' +
+    'morning in 48 seconds; one who switches between orders takes 74. Moving ' +
+    'the grinder into a far corner to protect Mara costs a batching barista ' +
+    'about four per cent. The layout that is kinder to her is almost free to ' +
+    'work in — if you are allowed to stay on one thing.';
+  setInGame(false);
+  show('svcDone');
+}
+
+$('svcAgain').onclick = () => { closeOverlays(); setInGame(true); setMode('service'); };
+$('svcBoard').onclick = () => { setInGame(false); renderBoard(); show('board'); };
+
 /* Meters ------------------------------------------------------------- */
 
 function updateMeters (step) {
@@ -530,6 +609,13 @@ function frame (now) {
         const i = Math.min(path.length - 1, Math.floor(walkT * path.length));
         view.placeVisitor(path[i], path[Math.min(path.length - 1, i + 4)]);
         updateMeters(path[i]);
+      } else if (mode === 'service') {
+        view.setCutaway(false);
+        view.setFloorSurvey(false);
+        view.placeVisitor(null);
+        walker.update(dt, studio.room, studio.grid);
+        view.setFreeCamera(walker.pos, walker.yaw);
+        tickService(dt);
       } else if (mode === 'free') {
         view.setCutaway(false);
         view.setFloorSurvey(false);

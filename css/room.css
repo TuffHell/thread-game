@@ -614,3 +614,99 @@ html.text-large { font-size: 118%; }
 @media (max-width: 560px) {
   .vbtn { padding: 6px 9px; font-size: 0.68rem; }
 }
+
+/* ---------------------------------------------------------------- */
+/* The Quiet Service                                                 */
+/* ---------------------------------------------------------------- */
+
+.svc {
+  position: absolute;
+  top: clamp(64px, 10vh, 92px);
+  right: clamp(14px, 2.2vw, 28px);
+  width: 210px;
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+  padding: 13px 15px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: none;
+  z-index: 5;
+}
+.svc-orders { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.svc-order {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+}
+.svc-order b { color: var(--ink); font-weight: 500; }
+.svc-order .steps { letter-spacing: 0.14em; font-size: 0.7rem; }
+.svc-order .steps i { font-style: normal; opacity: 0.3; }
+.svc-order .steps i.done { opacity: 1; color: var(--accent); }
+.svc-flow i {
+  display: block;
+  font-style: normal;
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+.svc-flow span {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.68rem;
+  color: var(--ink-soft);
+  min-height: 1.1em;
+}
+
+/* The thing you are doing right now. */
+.svc-action {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: clamp(74px, 13vh, 128px);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-radius: 100px;
+  padding: 10px 20px 10px 12px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: none;
+  z-index: 6;
+}
+.svc-action p {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1rem;
+  color: var(--ink);
+}
+.svc-ring {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--edge);
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+}
+.svc-ring-fill {
+  position: absolute;
+  left: 0; bottom: 0; right: 0;
+  height: 0%;
+  background: var(--accent);
+  transition: height 80ms linear;
+}
+
+.svc-evidence {
+  border-left: 2px solid var(--edge);
+  padding-left: 14px;
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  font-style: normal;
+}

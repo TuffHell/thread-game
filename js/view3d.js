@@ -15,8 +15,8 @@
 import * as THREE from '../vendor/three.module.js';
 import { def, KINDS, MATERIALS } from './room.js';
 
-export const RENDER_W = 384;
-export const RENDER_H = 216;
+export const RENDER_W = 480;
+export const RENDER_H = 270;
 const EYE = 158;              // centimetres, average standing eye height
 const WALL_H = 285;
 
@@ -184,6 +184,8 @@ export class View3D {
       this.wallMeshes.push(m);
     }
 
+    this.addOutside(room);
+
     for (const t of room.things) if (t.placed) this.addThing(t);
 
     // Light. Kept few and hard, because soft global illumination reads as
@@ -200,6 +202,37 @@ export class View3D {
     s.add(key);
 
     this.refreshLights();
+  }
+
+  /**
+   * The world outside.
+   *
+   * A painted pixel backdrop hung on a big curved wall around the building,
+   * so every window and glass door has something real behind it instead of
+   * flat fog. It is the same art as the brief screens, which is the point:
+   * the room you are standing in and the picture you were shown are one
+   * place. Loads lazily and simply never appears if the asset is missing.
+   */
+  addOutside (room) {
+    const url = `assets/outside-${room.outside ?? 'street'}.png`;
+    const loader = new THREE.TextureLoader();
+    loader.load(url, tex => {
+      tex.minFilter = THREE.NearestFilter;
+      tex.magFilter = THREE.NearestFilter;
+      tex.colorSpace = THREE.SRGBColorSpace;
+
+      const radius = Math.max(room.w, room.h) * 1.5;
+      const geo = new THREE.CylinderGeometry(
+        radius, radius, WALL_H * 3.2, 48, 1, true, 0, Math.PI * 2
+      );
+      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        map: tex, side: THREE.BackSide, fog: false, toneMapped: false
+      }));
+      mesh.position.set(room.w / 2, WALL_H * 0.9, room.h / 2);
+      mesh.renderOrder = -1;
+      this.scene.add(mesh);
+      this.outside = mesh;
+    }, undefined, () => { /* no asset, no outside; the sky colour stands in */ });
   }
 
   /**
@@ -543,7 +576,11 @@ export class View3D {
     this.hFov = 92;
     this.camera.position.set(pos.x, EYE, pos.y);
     this.camera.rotation.set(0, 0, 0);
-    this.camera.rotateY(yaw);
+    // The walker's forward is (sin yaw, cos yaw) in room space. A camera
+    // rotated by yaw alone looks down (-sin, -cos) — precisely backwards,
+    // which is why W walked away from wherever you were facing. The half
+    // turn reconciles three.js looking down -Z with the room's convention.
+    this.camera.rotateY(yaw + Math.PI);
   }
 
   /**

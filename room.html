@@ -23,6 +23,7 @@
     <button class="vbtn" id="viewRoom">Look</button>
     <button class="vbtn" id="viewWalk">Replay</button>
     <button class="vbtn" id="viewFree">Walk</button>
+    <button class="vbtn" id="viewService" hidden>Service</button>
   </div>
 
   <header class="hud-top room-top" id="gamehud" hidden>
@@ -72,6 +73,20 @@
       <button class="btn btn-quiet" id="hintDo">Do it for me</button>
       <button class="btn btn-quiet" id="hintClose">I will try</button>
     </div>
+  </div>
+
+  <!-- The Quiet Service -->
+  <div class="svc" id="svc" hidden>
+    <div class="svc-orders" id="svcOrders"></div>
+    <div class="svc-flow">
+      <i>flow</i>
+      <div class="m-track"><div class="m-fill teal" id="svcFlow"></div></div>
+      <span id="svcFlowNote"></span>
+    </div>
+  </div>
+  <div class="svc-action" id="svcAction" hidden>
+    <div class="svc-ring"><div class="svc-ring-fill" id="svcRing"></div></div>
+    <p id="svcActionText"></p>
   </div>
 
   <div class="freehud" id="freehud" hidden>
@@ -160,6 +175,20 @@
   <!-- ------------------------------------------------------------ -->
   <!-- Ending                                                        -->
   <!-- ------------------------------------------------------------ -->
+  <section id="svcDone" class="overlay" hidden>
+    <div class="reflect-inner">
+      <p class="eyebrow">the morning is done</p>
+      <h2>Eight served, nobody hurried.</h2>
+      <div class="reflect-grid" id="svcGrid"></div>
+      <p class="reflect-note" id="svcNote"></p>
+      <p class="reflect-note svc-evidence" id="svcEvidence"></p>
+      <div class="calib-actions">
+        <button class="btn btn-big" id="svcAgain">Again</button>
+        <button class="btn btn-quiet" id="svcBoard">Board</button>
+      </div>
+    </div>
+  </section>
+
   <section id="ending" class="overlay" hidden>
     <div class="reflect-inner">
       <p class="eyebrow">the last signature</p>
@@ -259,8 +288,8 @@
       <fieldset class="calib-group">
         <legend>Finish</legend>
         <div class="choices" role="radiogroup" id="styleChoices">
-          <button class="choice" data-v="crisp"><b>Low poly</b><span>Full resolution, clean edges. The default.</span></button>
-          <button class="choice" data-v="pixel"><b>Pixel</b><span>216 lines and dither, if that is your thing.</span></button>
+          <button class="choice" data-v="pixel"><b>Pixel</b><span>270 lines and ordered dither. The default, and the look the game is built for.</span></button>
+          <button class="choice" data-v="crisp"><b>Smooth</b><span>Full resolution, clean edges, no dither.</span></button>
         </div>
       </fieldset>
       <fieldset class="calib-group">

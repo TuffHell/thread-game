@@ -39,7 +39,8 @@ function cafe () {
     walls: [...box(w, h, 'tile'), wall(560, 0, 560, 200, 'glass')],
     door: { x: 70, y: 630 },
     goal: { x: 700, y: 130 },
-    budget: 5
+    budget: 5,
+    outside: 'street'
   });
 
   r.things = [
@@ -79,7 +80,8 @@ function library () {
     walls: [...box(w, h, 'plaster'), wall(0, 320, 380, 320, 'wood')],
     door: { x: 60, y: 580 },
     goal: { x: 720, y: 120 },
-    budget: 4
+    budget: 4,
+    outside: 'garden'
   });
 
   r.things = [
@@ -121,7 +123,8 @@ function clinic () {
     walls: [...box(w, h, 'plaster'), wall(520, 580, 520, 420, 'glass')],
     door: { x: 70, y: 510 },
     goal: { x: 650, y: 110 },
-    budget: 4
+    budget: 4,
+    outside: 'street'
   });
 
   const chairs = [];
@@ -162,7 +165,8 @@ function hall () {
     walls: [...box(w, h, 'brick'), wall(1040, 200, 1040, 520, 'glass')],
     door: { x: 80, y: 650 },
     goal: { x: 880, y: 140 },
-    budget: 6
+    budget: 6,
+    outside: 'garden'
   });
 
   r.things = [
