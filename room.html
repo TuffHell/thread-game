@@ -21,7 +21,8 @@
   <div class="viewswitch" id="viewswitch" hidden>
     <button class="vbtn on" id="viewPlan">Plan</button>
     <button class="vbtn" id="viewRoom">Look</button>
-    <button class="vbtn" id="viewWalk">Walk it</button>
+    <button class="vbtn" id="viewWalk">Replay</button>
+    <button class="vbtn" id="viewFree">Walk</button>
   </div>
 
   <header class="hud-top room-top" id="gamehud" hidden>
@@ -64,6 +65,19 @@
   </section>
 
   <button class="btn signoff" id="signoffBtn" hidden>Sign it off</button>
+  <button class="btn btn-quiet hintbtn" id="hintBtn" hidden>Where do I start?</button>
+  <div class="hintcard" id="hintCard" hidden>
+    <p id="hintText"></p>
+    <div class="hint-actions">
+      <button class="btn btn-quiet" id="hintDo">Do it for me</button>
+      <button class="btn btn-quiet" id="hintClose">I will try</button>
+    </div>
+  </div>
+
+  <div class="freehud" id="freehud" hidden>
+    <p class="free-keys"><b>W A S D</b> move &nbsp;·&nbsp; <b>← →</b> or drag to look</p>
+    <p class="free-read" id="freeRead"></p>
+  </div>
 
   <aside class="tray" id="tray" hidden aria-label="Things you can place"></aside>
   <nav class="layers" id="layers" hidden aria-label="Sensory layer"></nav>
@@ -99,6 +113,11 @@
       <p class="calib-intro">Owners with rooms, rooms with problems. Finish one and
       word gets round. Your budget on each job is the owner’s goodwill — spend it well.</p>
       <div class="board-list" id="boardList"></div>
+      <h3 class="about-sub" id="calmHead" hidden>Rooms you have finished</h3>
+      <p class="calib-intro" id="calmNote" hidden>Nothing to do in these. No timer,
+      no visitor to get through, nothing to fail. Just somewhere quiet that is
+      quiet because you made it so.</p>
+      <div class="board-list" id="calmList"></div>
       <div class="calib-actions"><button class="btn btn-quiet" id="boardBack">Back</button></div>
     </div>
   </section>
@@ -178,7 +197,15 @@
         <li><b>Everyone must make it, and the owner’s rules must hold.</b> One person
         comfortable is not enough, and comfort does not average: one bad spot on the
         route is the visit.</li>
-        <li><b>Sign it off.</b> Then the next room.</li>
+        <li><b>Stuck?</b> Press <b>Where do I start?</b> in Plan. It names who is
+        stopped and what by, and suggests the single biggest improvement — or
+        places it for you if you would rather just see it work.</li>
+        <li><b>Walk yourself</b> lets you move through the room with <b>WASD</b>.
+        There is deliberately nothing to cope with: no ear defenders, no
+        push-through button. You feel where it is bad, then you go back and
+        change the building. That is the only fix this game believes in.</li>
+        <li><b>Sign it off.</b> Then the next room — and finished rooms stay open
+        on the board to wander with nothing to do.</li>
       </ol>
       <div class="calib-actions"><button class="btn btn-quiet" id="helpBack">Back</button></div>
     </div>

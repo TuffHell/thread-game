@@ -146,6 +146,23 @@ export const COMMISSIONS = [
   }
 ];
 
+/**
+ * Rooms you have signed off stay open, and you can go back into them with
+ * nothing to do.
+ *
+ * This is the closest honest thing to what people mean when they ask for a
+ * Stardew feeling: not farming, but a place that is calm because you made it
+ * calm, that you are allowed to be in without a task. No timer, no meter, no
+ * visitor to get through, no way to fail. It is the reward for the work and
+ * it is the only mode in the game with no objective at all.
+ */
+export function finishedRooms (progress) {
+  const seen = new Set();
+  return COMMISSIONS
+    .filter(c => progress.done[c.id])
+    .filter(c => { if (seen.has(c.room)) return false; seen.add(c.room); return true; });
+}
+
 /* ------------------------------------------------------------------ */
 /* Progress                                                            */
 /* ------------------------------------------------------------------ */

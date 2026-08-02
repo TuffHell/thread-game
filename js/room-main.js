@@ -10,12 +10,15 @@ import { Studio } from './studio.js';
 import { KINDS } from './room.js';
 import { DOMAINS } from './field.js';
 import {
-  COMMISSIONS, CAST, GAME, loadProgress, saveProgress, isUnlocked, starsFor
+  COMMISSIONS, CAST, GAME, loadProgress, saveProgress, isUnlocked, starsFor,
+  finishedRooms
 } from './campaign.js';
 import { PEOPLE } from './person.js';
 import { palette } from './config.js';
 import { buildHeat } from './plan.js';
 import { View3D } from './view3d.js';
+import { Walker } from './walker.js';
+import { evaluate, bestMove, applyMove } from './solver.js';
 import { SOURCES } from './fragments.js';
 
 const $ = id => document.getElementById(id);
@@ -27,6 +30,12 @@ const LAYER_LABEL = {
 };
 
 const OVERLAYS = ['title', 'board', 'brief', 'debrief', 'ending', 'help', 'about', 'settings'];
+
+const READABLE = {
+  sound: 'noise', light: 'brightness', flicker: 'flicker', glare: 'glare',
+  crowd: 'people close by', clutter: 'visual clutter', smell: 'smell',
+  escape: 'nowhere to retreat to', exposure: 'cannot see the way out'
+};
 
 /* ------------------------------------------------------------------ */
 /* Preferences                                                         */
@@ -51,6 +60,7 @@ let mode = 'plan';
 let walkT = 0;
 let orbit = -Math.PI / 4;
 let briefTarget = null;
+const walker = new Walker();
 
 /* ------------------------------------------------------------------ */
 /* Interface plumbing                                                  */
@@ -131,7 +141,7 @@ const gl = $('stage3d');
 const view = new View3D(gl);
 view.setStyle(prefs.style);
 
-window.room = { studio, ui, view, prefs, progress, COMMISSIONS };
+window.room = { studio, ui, view, walker, prefs, progress, COMMISSIONS };
 
 document.documentElement.style.setProperty('--bg', palette().bg);
 document.body.style.background = palette().bg;
@@ -198,6 +208,25 @@ function renderBoard () {
   }).join('');
   for (const b of $('boardList').querySelectorAll('.job:not(.locked)')) {
     b.onclick = () => openBrief(COMMISSIONS.find(c => c.id === b.dataset.id));
+  }
+
+  const calm = finishedRooms(progress);
+  $('calmHead').hidden = calm.length === 0;
+  $('calmNote').hidden = calm.length === 0;
+  $('calmList').innerHTML = calm.map(c =>
+    `<button class="job calm" data-id="${c.id}">
+      <span class="job-title">${c.title}</span>
+      <span class="job-who">wander, nothing to do</span>
+      <span class="job-stars">↩</span>
+    </button>`).join('');
+  for (const b of $('calmList').querySelectorAll('.job')) {
+    b.onclick = () => {
+      commission = COMMISSIONS.find(c => c.id === b.dataset.id);
+      studio.load(commission);
+      closeOverlays();
+      setInGame(true);
+      setMode('free');
+    };
   }
 }
 
@@ -336,24 +365,39 @@ function setMode (m) {
   $('stage').hidden = m !== 'plan';
   gl.hidden = m === 'plan';
   $('grade').hidden = m === 'plan';
+  $('freehud').hidden = m !== 'free';
+  $('hintBtn').hidden = m !== 'plan';
+  $('hintCard').hidden = true;
   $('walkbar').hidden = m !== 'walk';
-  $('meters').hidden = m === 'plan';
+  $('meters').hidden = m !== 'walk';
   $('tray').hidden = m !== 'plan';
-  $('layers').hidden = m === 'walk';
-  $('verdict').hidden = m === 'walk';
+  $('layers').hidden = m !== 'look';
+  $('verdict').hidden = m === 'walk' || m === 'free';
   $('probe').style.display = m === 'plan' ? '' : 'none';
   $('signoffBtn').hidden = !(m === 'plan' && studio.ready());
   $('interrupt3d').hidden = true;
-  for (const [id, key] of [['viewPlan', 'plan'], ['viewRoom', 'look'], ['viewWalk', 'walk']]) {
+  for (const [id, key] of [['viewPlan', 'plan'], ['viewRoom', 'look'],
+                           ['viewWalk', 'walk'], ['viewFree', 'free']]) {
     $(id).classList.toggle('on', key === m);
   }
   if (m !== 'plan') { rebuild3d(); walkT = 0; }
+  if (m === 'free') {
+    // Start at the door facing the counter, the way anyone entering would.
+    const d = studio.room.door, g2 = studio.room.goal;
+    const len = Math.hypot(g2.x - d.x, g2.y - d.y) || 1;
+    walker.reset({
+      x: d.x + (g2.x - d.x) / len * 120,
+      y: d.y + (g2.y - d.y) / len * 120
+    });
+    walker.faceFrom(d, g2);
+  }
 }
 window.room.setMode = setMode;
 
 $('viewPlan').onclick = () => setMode('plan');
 $('viewRoom').onclick = () => setMode('look');
 $('viewWalk').onclick = () => setMode('walk');
+$('viewFree').onclick = () => setMode('free');
 
 const origRecompute = studio.recompute.bind(studio);
 studio.recompute = function () {
@@ -390,9 +434,67 @@ window.addEventListener('keydown', e => {
   }
 });
 gl.addEventListener('pointermove', e => {
-  if (mode !== 'look' || !e.buttons) return;
-  orbit -= e.movementX * 0.005;
+  if (!e.buttons) return;
+  if (mode === 'look') orbit -= e.movementX * 0.005;
+  else if (mode === 'free') walker.lookBy(e.movementX);
 });
+
+const WALK_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD',
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+window.addEventListener('keydown', e => {
+  if (mode !== 'free' || !WALK_KEYS.has(e.code)) return;
+  e.preventDefault();
+  walker.down(e.code);
+});
+window.addEventListener('keyup', e => walker.up(e.code));
+window.addEventListener('blur', () => walker.keys.clear());
+
+/* Hint ---------------------------------------------------------------- */
+
+let pendingHint = null;
+
+$('hintBtn').onclick = () => {
+  $('hintText').textContent = 'Looking…';
+  $('hintCard').hidden = false;
+  $('hintDo').hidden = true;
+  // Next frame, so the card paints before the search blocks the thread.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const ev = evaluate(studio.room, studio.constraints, studio.people);
+    if (ev.ok) {
+      $('hintText').textContent =
+        'Nothing needs fixing. Everyone gets through and the owner is happy — ' +
+        'sign it off.';
+      pendingHint = null;
+      return;
+    }
+    // Capped so a stuck player waits a moment, not a minute.
+    const hint = bestMove(studio.room, studio.constraints, studio.people, ev, 60);
+    if (!hint) {
+      $('hintText').textContent =
+        'No single change helps from here, which usually means something ' +
+        'bought is in the wrong place. Try removing one thing (select it and ' +
+        'press Delete) and see what that frees up.';
+      pendingHint = null;
+      return;
+    }
+    pendingHint = hint.cand;
+    const who = hint.failing.person.name;
+    const cause = READABLE[hint.blame] ?? hint.blame;
+    $('hintText').textContent =
+      `${who} is stopped by ${cause}. The biggest single improvement from ` +
+      `here is to ${hint.cand.label}.`;
+    $('hintDo').hidden = false;
+  }));
+};
+
+$('hintClose').onclick = () => { $('hintCard').hidden = true; };
+$('hintDo').onclick = () => {
+  if (pendingHint) applyMove(studio.room, pendingHint);
+  pendingHint = null;
+  $('hintCard').hidden = true;
+  studio.recompute();
+  ui.syncTray(studio);
+};
 
 /* Meters ------------------------------------------------------------- */
 
@@ -428,6 +530,23 @@ function frame (now) {
         const i = Math.min(path.length - 1, Math.floor(walkT * path.length));
         view.placeVisitor(path[i], path[Math.min(path.length - 1, i + 4)]);
         updateMeters(path[i]);
+      } else if (mode === 'free') {
+        view.setCutaway(false);
+        view.setFloorSurvey(false);
+        view.placeVisitor(null);
+        walker.update(dt, studio.room, studio.grid);
+        view.setFreeCamera(walker.pos, walker.yaw);
+
+        // What it is like to stand exactly here, in this person's terms.
+        const i = studio.grid.at(walker.x, walker.y);
+        const load = studio.grid.load[i];
+        const g = $('grade');
+        g.classList.toggle('load1', load >= 0.26 && load < 0.42);
+        g.classList.toggle('load2', load >= 0.42);
+        const top = studio.probeAt(walker.x, walker.y);
+        $('freeRead').textContent = load < 0.16
+          ? 'quiet here'
+          : (top ? `${READABLE[top.domain] ?? top.domain}, ${Math.round(top.raw * 100)}%` : '');
       } else {
         view.setCutaway(false);
         view.setFloorSurvey(false);

@@ -517,6 +517,7 @@ export class View3D {
   }
 
   setPlanCamera (yaw = -Math.PI / 4, pitch = 0.95, dist = 1.55) {
+    this.hFov = 70;
     const r = this.room;
     const cx = r.w / 2, cz = r.h / 2;
     const d = Math.max(r.w, r.h) * dist;
@@ -529,11 +530,29 @@ export class View3D {
   }
 
   /**
+   * Walk it yourself.
+   *
+   * There is deliberately nothing to do here but move and look. No ear
+   * defenders, no sunglasses, no push-through key. The moment a coping tool
+   * exists in this mode, the game starts teaching people to endure rooms
+   * instead of to change them, which is the thing it exists to argue against.
+   * You feel where it is bad, and then you go back to Plan and move the
+   * grinder.
+   */
+  setFreeCamera (pos, yaw) {
+    this.hFov = 92;
+    this.camera.position.set(pos.x, EYE, pos.y);
+    this.camera.rotation.set(0, 0, 0);
+    this.camera.rotateY(yaw);
+  }
+
+  /**
    * Stand where the visitor stands. t runs 0..1 along the route they walked,
    * so the camera goes exactly where the simulation said they went, including
    * stopping at the point where it became too much.
    */
   setWalkCamera (path, t) {
+    this.hFov = 88;
     if (!path || path.length < 2) return;
     const f = Math.max(0, Math.min(0.999, t)) * (path.length - 1);
     const i = Math.floor(f);
@@ -570,6 +589,24 @@ export class View3D {
    * which is why this toggle costs nothing and belongs in settings rather
    * than in the bin.
    */
+  /**
+   * Lock the horizontal field of view rather than the vertical one.
+   *
+   * Three.js takes a vertical fov, so in a portrait window a fixed 68 gives
+   * roughly 57 degrees across — which at eye height in a small room feels
+   * like walking around with your head in a box. Deriving vertical from a
+   * target horizontal keeps the view honest at any window shape.
+   */
+  applyFov (aspect, horizontalDeg) {
+    const h = horizontalDeg * Math.PI / 180;
+    const v = 2 * Math.atan(Math.tan(h / 2) / Math.max(0.35, aspect));
+    const deg = Math.min(110, v * 180 / Math.PI);
+    if (Math.abs(deg - this.camera.fov) > 0.4) {
+      this.camera.fov = deg;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
   setStyle (style) {
     this.styleMode = style;
     this.rw = null;   // force the next resize to re-run
@@ -595,6 +632,7 @@ export class View3D {
         this.camera.aspect = aspect;
         this.camera.updateProjectionMatrix();
       }
+      this.applyFov(aspect, this.hFov ?? 78);
       return;
     }
 
@@ -607,6 +645,7 @@ export class View3D {
       this.camera.aspect = aspect;
       this.camera.updateProjectionMatrix();
     }
+    this.applyFov(aspect, this.hFov ?? 78);
   }
 
   render () {

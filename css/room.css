@@ -536,3 +536,81 @@ html.text-large { font-size: 118%; }
   pointer-events: none;
   background: linear-gradient(rgba(8, 13, 20, 0.18), rgba(8, 13, 20, 0.62));
 }
+
+/* ---------------------------------------------------------------- */
+/* Hint                                                              */
+/* ---------------------------------------------------------------- */
+
+.hintbtn {
+  position: absolute;
+  left: clamp(14px, 2.2vw, 28px);
+  bottom: clamp(16px, 3vh, 30px);
+  z-index: 6;
+}
+.hintcard {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: clamp(70px, 12vh, 120px);
+  width: min(460px, calc(100vw - 40px));
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  padding: 15px 18px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  z-index: 7;
+}
+.hintcard p {
+  margin: 0 0 12px;
+  font-size: 0.94rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.hint-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---------------------------------------------------------------- */
+/* Free walking                                                      */
+/* ---------------------------------------------------------------- */
+
+.freehud {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: clamp(18px, 4vh, 40px);
+  text-align: center;
+  pointer-events: none;
+  z-index: 5;
+}
+.free-keys {
+  margin: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  opacity: 0.8;
+}
+.free-keys b { color: var(--ink); font-weight: 600; }
+.free-read {
+  margin: 7px 0 0;
+  font-family: var(--serif);
+  font-size: 1rem;
+  color: var(--ink);
+  min-height: 1.3em;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.7);
+}
+
+/* The grade reacts to how loud it is where you are standing. */
+.grade.load1 { background:
+  radial-gradient(ellipse at 50% 40%, transparent 44%, rgba(60, 26, 8, 0.5) 100%),
+  linear-gradient(rgba(255, 150, 70, 0.06), rgba(20, 12, 6, 0.16)); }
+.grade.load2 { background:
+  radial-gradient(ellipse at 50% 40%, transparent 32%, rgba(78, 20, 8, 0.62) 100%),
+  linear-gradient(rgba(255, 110, 60, 0.10), rgba(24, 8, 4, 0.24)); }
+
+/* Four views need a little more room than three. */
+.viewswitch { max-width: calc(100vw - 24px); }
+.vbtn { padding: 6px 13px; white-space: nowrap; }
+@media (max-width: 560px) {
+  .vbtn { padding: 6px 9px; font-size: 0.68rem; }
+}

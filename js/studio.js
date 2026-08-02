@@ -217,6 +217,12 @@ export class Studio {
 
   setMode (m) { this.mode = m; this.dirty = true; }
 
+  /** The worst channel at an arbitrary point, for the free-walk readout. */
+  probeAt (x, y) {
+    return explain(this.grid, x, y, this.person.weights)
+      .filter(d => d.raw > 0.05)[0] ?? null;
+  }
+
   /** What is worst at the point under the cursor, in this person's terms. */
   probeReading () {
     if (!this.probe) return null;
