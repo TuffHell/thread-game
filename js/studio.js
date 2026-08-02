@@ -13,8 +13,7 @@ import { def, KINDS, spent, thing, checkConstraints } from './room.js';
 import { makeGrid, compute, combine, explain, DOMAINS } from './field.js';
 import { visit, PEOPLE } from './person.js';
 import {
-  fit, toScreen, toRoom, drawBackdrop, drawHeat, drawWalls,
-  drawRoute, drawThings, drawMarkers
+  fit, toScreen, toRoom, renderPixelPlan, drawPixelLabels
 } from './plan.js';
 
 const READABLE = {
@@ -58,6 +57,7 @@ export class Studio {
     // Re-lay the display field in this person's weights so the heatmap shows
     // the room as it is for them, which is the entire point of profiles.
     combine(this.grid, this.person.weights);
+    this.stamp = (this.stamp ?? 0) + 1;
     this.dirty = true;
     this.ui.onResult(this);
   }
@@ -73,6 +73,7 @@ export class Studio {
     });
     combine(this.grid, this.person.weights);
     this.broken = checkConstraints(this.room, this.constraints);
+    this.stamp = (this.stamp ?? 0) + 1;
     this.dirty = true;
     this.ui.onResult(this);
   }
@@ -141,8 +142,17 @@ export class Studio {
   /* Interaction                                                     */
   /* -------------------------------------------------------------- */
 
+  /**
+   * The room-to-screen mapping.
+   *
+   * The pixel renderer rounds the room into a whole number of buffer pixels,
+   * so its fit is very slightly different from the old continuous one. Using
+   * the renderer's own numbers is what keeps a grabbed table under the
+   * cursor instead of a pixel or two adrift.
+   */
   view () {
-    return fit(this.room, this.canvas.clientWidth, this.canvas.clientHeight);
+    return this.pixelView ??
+      fit(this.room, this.canvas.clientWidth, this.canvas.clientHeight);
   }
 
   thingAt (sx, sy) {
@@ -249,13 +259,17 @@ export class Studio {
     const ctx = this.ctx;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    const v = this.view();
-    drawBackdrop(ctx, vw, vh);
-    drawHeat(ctx, v, this.room, this.grid, this.mode);
-    drawWalls(ctx, v, this.room);
-    drawRoute(ctx, v, this.result);
-    drawThings(ctx, v, this.room, { held: this.held, hover: this.hover });
-    drawMarkers(ctx, v, this.room);
+    // The scene is drawn small and blown up; the view it returns is in screen
+    // pixels, so pointer hit-testing and labels agree with what is on screen.
+    this.pixelView = renderPixelPlan(ctx, vw, vh, this.room, this.grid, {
+      mode: this.mode,
+      result: this.result,
+      held: this.held,
+      hover: this.hover,
+      stamp: this.stamp
+    });
+    drawPixelLabels(ctx, this.pixelView, this.room,
+                    { hover: this.hover, held: this.held });
   }
 }
 

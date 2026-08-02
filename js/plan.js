@@ -7,6 +7,10 @@
 
 import { palette, settings, withAlpha } from './config.js';
 import { def, KINDS, MATERIALS } from './room.js';
+import {
+  spriteFor, blitSprite, shadowUnder, drawFloor, drawWallsPixel,
+  drawRoutePixel, drawStopMark, drawSelectRing
+} from './planart.js';
 
 const DOMAIN_COLOR = {
   sound: 15, flicker: 45, light: 55, glare: 40,
@@ -40,7 +44,56 @@ let heatCanvas = null;
  * The heat image itself, shared by the plan view and the 3D floor so the
  * survey is literally the same pixels in both.
  */
-export function buildHeat (grid, mode = 'load') {
+let heatKey = null;
+let glowCanvas = null, glowKey = null;
+
+/**
+ * The load field as a glow rather than a wash.
+ *
+ * The survey colouring paints every square, including the fine ones, which
+ * over a wooden floor turns the whole plan a flat sickly green. Here calm is
+ * simply transparent — you see the room — and the colour only arrives as the
+ * load climbs. Same numbers, and much easier to read at a glance because
+ * your eye goes to the part that is wrong.
+ */
+export function buildGlow (grid, mode = 'load', stamp = null) {
+  const key = stamp == null ? null : `${mode}:${stamp}:${grid.cols}x${grid.rows}`;
+  if (key && key === glowKey && glowCanvas) return glowCanvas;
+  glowKey = key;
+  if (!glowCanvas) glowCanvas = document.createElement('canvas');
+  if (glowCanvas.width !== grid.cols || glowCanvas.height !== grid.rows) {
+    glowCanvas.width = grid.cols;
+    glowCanvas.height = grid.rows;
+  }
+  const gc = glowCanvas.getContext('2d');
+  const img = gc.createImageData(grid.cols, grid.rows);
+  const src = mode === 'load' ? grid.load : grid.layers[mode];
+  // Below this a room is comfortable and should just look like a room. Set
+  // at the point where a visit starts costing reserve rather than at zero,
+  // so a fixed room reads as wood and daylight instead of pale orange.
+  const FLOOR_CLEAR = 0.26;
+
+  for (let i = 0; i < src.length; i++) {
+    const val = Math.max(0, Math.min(1, src[i]));
+    const o = i * 4;
+    const over = (val - FLOOR_CLEAR) / (1 - FLOOR_CLEAR);
+    if (over <= 0 || grid.blocked[i]) { img.data[o + 3] = 0; continue; }
+    const [rr, gg, bb] = mode === 'load'
+      ? hsl(58 - over * 58, 0.82, 0.52)         // straw, through amber, to red
+      : hsl(DOMAIN_COLOR[mode] ?? 200, 0.78, 0.55);
+    img.data[o] = rr; img.data[o + 1] = gg; img.data[o + 2] = bb;
+    img.data[o + 3] = Math.round(Math.min(1, over * 1.25) * 205);
+  }
+  gc.putImageData(img, 0, 0);
+  return glowCanvas;
+}
+
+export function buildHeat (grid, mode = 'load', stamp = null) {
+  // Only redraw when the field actually changed. The plan view runs at 60fps
+  // and the survey does not.
+  const key = stamp == null ? null : `${mode}:${stamp}:${grid.cols}x${grid.rows}`;
+  if (key && key === heatKey && heatCanvas) return heatCanvas;
+  heatKey = key;
   if (!heatCanvas) heatCanvas = document.createElement('canvas');
   if (heatCanvas.width !== grid.cols || heatCanvas.height !== grid.rows) {
     heatCanvas.width = grid.cols;
@@ -69,8 +122,8 @@ export function buildHeat (grid, mode = 'load') {
   return heatCanvas;
 }
 
-export function drawHeat (ctx, v, r, grid, mode = 'load') {
-  const hc = buildHeat(grid, mode);
+export function drawHeat (ctx, v, r, grid, mode = 'load', stamp = null) {
+  const hc = buildHeat(grid, mode, stamp);
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.globalAlpha = 0.92;
@@ -207,6 +260,153 @@ export function drawMarkers (ctx, v, r) {
     ctx.globalAlpha = 0.75;
     ctx.fillStyle = p.inkSoft;
     ctx.fillText(label, s.x, s.y - 22);
+  }
+  ctx.letterSpacing = '0px';
+  ctx.restore();
+}
+
+
+/* ------------------------------------------------------------------ */
+/* The pixel plan                                                      */
+/* ------------------------------------------------------------------ */
+
+/*
+ * One low-resolution buffer, reused between frames, blown up with nearest
+ * neighbour at the end. The zoom is always a whole number so a sprite pixel
+ * is always a square block of screen pixels — the moment that stops being
+ * true it stops looking like pixel art and starts looking like a small
+ * picture someone stretched.
+ */
+let buf = null, bctx = null;
+
+/** Screen size in, buffer size and zoom out. */
+function bufferFor (vw, vh) {
+  const zoom = Math.max(2, Math.min(6, Math.round(vw / 300)));
+  const bw = Math.ceil(vw / zoom), bh = Math.ceil(vh / zoom);
+  if (!buf) { buf = document.createElement('canvas'); bctx = buf.getContext('2d'); }
+  if (buf.width !== bw || buf.height !== bh) { buf.width = bw; buf.height = bh; }
+  return { zoom, bw, bh };
+}
+
+/**
+ * Draw the room as a small top-down scene.
+ *
+ * Order matters and is the usual one for this kind of view: ground, then the
+ * survey painted onto it, then walls, then anything lying flat, then the
+ * route, then everything standing up sorted back to front so nearer objects
+ * overlap further ones. Labels are deliberately not in here — they go on
+ * afterwards at full resolution, because five-pixel-tall type is charming
+ * right up until you need to read it.
+ */
+export function renderPixelPlan (ctx, vw, vh, room, grid, opts = {}) {
+  const { mode = 'load', result = null, held = null, hover = null, stamp = null } = opts;
+  const { zoom, bw, bh } = bufferFor(vw, vh);
+  const g = bctx;
+
+  // Fit the room into the buffer, in buffer pixels per centimetre.
+  const pad = 10;
+  const s = Math.min((bw - pad * 2) / room.w, (bh - pad * 2) / room.h);
+  const ox = (bw - room.w * s) / 2, oy = (bh - room.h * s) / 2;
+  const toBuf = (x, y) => ({ x: ox + x * s, y: oy + y * s });
+
+  g.clearRect(0, 0, bw, bh);
+  g.fillStyle = '#141c24';
+  g.fillRect(0, 0, bw, bh);
+
+  // Ground, with a tile every 90cm or so.
+  drawFloor(g, Math.round(ox), Math.round(oy),
+            Math.round(room.w * s), Math.round(room.h * s), 60 * s);
+
+  // The survey, in cells. Calm is transparent, so a room you have fixed
+  // looks like a room and not like a weather map.
+  const glow = buildGlow(grid, mode, stamp);
+  g.save();
+  g.imageSmoothingEnabled = false;
+  g.globalAlpha = 0.8;
+  g.drawImage(glow, Math.round(ox), Math.round(oy),
+              Math.round(room.w * s), Math.round(room.h * s));
+  g.restore();
+
+  drawWallsPixel(g, room, toBuf, Math.max(2, 12 * s));
+
+  // Flat things first: a rug is underfoot, not furniture.
+  const flat = t => t.kind === 'rug';
+  for (const pass of [true, false]) {
+    const items = room.things
+      .filter(t => t.placed && flat(t) === pass)
+      .sort((a, b) => a.y - b.y);
+
+    for (const t of items) {
+      const D = def(t);
+      const p = toBuf(t.x, t.y);
+      const rows = spriteFor(t.kind);
+      // Footprint in buffer pixels, never smaller than the sprite can show.
+      const w = Math.max(rows[0].length * 0.6, D.r * 2 * s);
+      const h = w * (rows.length / rows[0].length);
+      const x = p.x - w / 2, y = p.y - h / 2;
+
+      if (!pass) shadowUnder(g, p.x, p.y, w, h);
+      blitSprite(g, rows, x, y, w, h);
+
+      if (t.id === held || t.id === hover) {
+        drawSelectRing(g, p.x, p.y, Math.max(w, h) / 2 + 2,
+                       t.id === held ? '#ffe9a8' : '#cfe0f0');
+      }
+    }
+    if (pass && result) {
+      drawRoutePixel(g, result.path, toBuf, result.ok);
+    }
+  }
+
+  if (result && !result.ok && result.at) {
+    const p = toBuf(result.at.x, result.at.y);
+    drawStopMark(g, p.x, p.y);
+  }
+
+  // Blow it up. Nothing between the buffer and the screen but whole pixels.
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(buf, 0, 0, bw, bh, 0, 0, bw * zoom, bh * zoom);
+  ctx.restore();
+
+  return { s: s * zoom, ox: ox * zoom, oy: oy * zoom };
+}
+
+/**
+ * Names, at a size you can actually read.
+ *
+ * Drawn after the upscale in a normal font with a hard shadow, which is what
+ * the genre does — the scene is pixels, the interface is not.
+ */
+const LANDMARKS = new Set(['counter', 'door', 'shelf', 'window']);
+
+export function drawPixelLabels (ctx, v, room, { hover, held } = {}) {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
+  for (const t of room.things) {
+    if (!t.placed) continue;
+    const D = def(t);
+    const near = t.id === hover || t.id === held;
+    // Everything named at once is noise, and the names collide. Only the
+    // things you navigate by stay labelled; the rest speaks when pointed at.
+    const landmark = LANDMARKS.has(t.kind);
+    if (!near && !landmark) continue;
+    const x = v.ox + t.x * v.s, y = v.oy + t.y * v.s + D.r * v.s + 15;
+    ctx.fillStyle = 'rgba(10, 14, 20, 0.85)';
+    ctx.fillText(D.label, x + 1, y + 1);
+    ctx.fillStyle = near ? '#ffe9a8' : '#e6ecf2';
+    ctx.fillText(D.label, x, y);
+  }
+
+  ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+  ctx.letterSpacing = '0.14em';
+  for (const [pt, label] of [[room.door, 'IN'], [room.goal, 'ORDER']]) {
+    const x = v.ox + pt.x * v.s, y = v.oy + pt.y * v.s - 20;
+    ctx.fillStyle = 'rgba(10, 14, 20, 0.85)';
+    ctx.fillText(label, x + 1, y + 1);
+    ctx.fillStyle = '#9fd6c6';
+    ctx.fillText(label, x, y);
   }
   ctx.letterSpacing = '0px';
   ctx.restore();

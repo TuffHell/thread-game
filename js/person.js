@@ -111,37 +111,117 @@ function nearestOpen (grid, x, y) {
   return start;
 }
 
+/**
+ * A* over the grid, with a real priority queue.
+ *
+ * The first version kept the frontier in a plain array, scanned it linearly
+ * for the cheapest node and called `includes` before every push. On a
+ * seventy-by-sixty grid that is quadratic in the frontier and it was, by some
+ * distance, the slowest thing in the game — three of these run per person per
+ * visit, and a visit runs on every drag and sixty times inside every hint. A
+ * binary heap plus an "already open" flag turns the same search into
+ * something you cannot feel.
+ */
+class Heap {
+  constructor () { this.a = []; this.f = []; }
+  get size () { return this.a.length; }
+  push (i, f) {
+    const a = this.a, ff = this.f;
+    a.push(i); ff.push(f);
+    let k = a.length - 1;
+    while (k > 0) {
+      const p = (k - 1) >> 1;
+      if (ff[p] <= ff[k]) break;
+      [a[p], a[k]] = [a[k], a[p]];
+      [ff[p], ff[k]] = [ff[k], ff[p]];
+      k = p;
+    }
+  }
+  pop () {
+    const a = this.a, ff = this.f;
+    const top = a[0];
+    const li = a.pop(), lf = ff.pop();
+    if (a.length) {
+      a[0] = li; ff[0] = lf;
+      let k = 0;
+      for (;;) {
+        const l = k * 2 + 1, r = l + 1;
+        let m = k;
+        if (l < a.length && ff[l] < ff[m]) m = l;
+        if (r < a.length && ff[r] < ff[m]) m = r;
+        if (m === k) break;
+        [a[m], a[k]] = [a[k], a[m]];
+        [ff[m], ff[k]] = [ff[k], ff[m]];
+        k = m;
+      }
+    }
+    return top;
+  }
+}
+
+// Reused between calls; routing happens thousands of times and the arrays
+// are the same shape every time.
+const scratch = { n: -1 };
+function pads (n) {
+  if (scratch.n !== n) {
+    scratch.n = n;
+    scratch.g = new Float32Array(n);
+    scratch.came = new Int32Array(n);
+    scratch.state = new Uint8Array(n);
+  }
+  scratch.g.fill(Infinity);
+  scratch.came.fill(-1);
+  scratch.state.fill(0);
+  return scratch;
+}
+
+const NEIGHBOURS = [
+  [1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
+  [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]
+];
+
 export function route (grid, from, to) {
   const start = nearestOpen(grid, from.x, from.y);
   const goal = nearestOpen(grid, to.x, to.y);
-  const { cols, rows } = grid;
-  const g = new Float32Array(cols * rows).fill(Infinity);
-  const came = new Int32Array(cols * rows).fill(-1);
-  const open = [start];
-  g[start] = 0;
-  const gx = i => i % cols, gy = i => (i / cols) | 0;
-  const h = i => Math.hypot(gx(i) - gx(goal), gy(i) - gy(goal));
+  const { cols, rows, load, blocked } = grid;
+  const n = cols * rows;
+  const { g, came, state } = pads(n);
 
-  while (open.length) {
-    let bi = 0;
-    for (let k = 1; k < open.length; k++) {
-      if (g[open[k]] + h(open[k]) < g[open[bi]] + h(open[bi])) bi = k;
-    }
-    const cur = open.splice(bi, 1)[0];
+  const gcol = goal % cols, grow = (goal / cols) | 0;
+  const h = i => {
+    const dx = (i % cols) - gcol, dy = ((i / cols) | 0) - grow;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const open = new Heap();
+  g[start] = 0;
+  open.push(start, h(start));
+  state[start] = 1;
+
+  while (open.size) {
+    const cur = open.pop();
     if (cur === goal) break;
-    const c = gx(cur), r = gy(cur);
-    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    if (state[cur] === 2) continue;
+    state[cur] = 2;
+
+    const c = cur % cols, r = (cur / cols) | 0;
+    for (const [dc, dr, cost] of NEIGHBOURS) {
       const nc = c + dc, nr = r + dr;
       if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
-      const n = nr * cols + nc;
-      if (grid.blocked[n]) continue;
-      const step = Math.hypot(dc, dr) * (1 + grid.load[n] * 6);
-      if (g[cur] + step < g[n]) {
-        g[n] = g[cur] + step; came[n] = cur;
-        if (!open.includes(n)) open.push(n);
+      const nx = nr * cols + nc;
+      if (blocked[nx]) continue;
+      // Load is a cost, not a wall: a loud route is walkable and expensive,
+      // which is what makes the route bend around trouble rather than refuse.
+      const step = cost * (1 + load[nx] * 6);
+      const alt = g[cur] + step;
+      if (alt < g[nx]) {
+        g[nx] = alt; came[nx] = cur;
+        open.push(nx, alt + h(nx));
+        state[nx] = 1;
       }
     }
   }
+
   if (g[goal] === Infinity) return null;
   const path = [];
   for (let i = goal; i !== -1; i = came[i]) path.push(i);

@@ -214,12 +214,24 @@
     overflow-x: auto;
   }
   .tray-item { flex: 0 0 auto; }
-  .layers { top: auto; bottom: 74px; right: 12px; transform: none; flex-direction: row; }
+  /* Anchored only on the right, the row ran off the left edge and took
+     "everything" and "noise" — the two you need most — with it. */
+  .layers {
+    top: auto; bottom: 74px; left: 12px; right: 12px;
+    transform: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px 4px;
+  }
   .layer { border-right: 0; border-bottom: 2px solid transparent; }
   .layer.on { border-bottom-color: var(--accent); }
   .verdict { bottom: 140px; }
   .probe { bottom: 118px; }
   .room-top p { display: none; }
+  /* The view switcher is centred across the top; below this width the level
+     name and the goodwill gauge cannot share that line with it. */
+  .room-top { padding-top: 58px; }
 }
 
 /* ---------------------------------------------------------------- */
@@ -709,4 +721,155 @@ html.text-large { font-size: 118%; }
   font-family: var(--sans);
   font-size: 0.82rem;
   font-style: normal;
+}
+
+/* ---------------------------------------------------------------- */
+/* Legibility over a bright room                                     */
+/* ---------------------------------------------------------------- */
+
+/*
+ * The interface is pale text designed for a near-black background, and the
+ * cafe it now sits on is cream walls and a tan floor lit warm. On that,
+ * "COMMISSION 1 OF 6" and the walking keys simply disappeared.
+ *
+ * Two layers fix it without tinting the room the player came to look at: a
+ * gradient scrim down the top and bottom bands where the readouts live, and
+ * a shadow on the text itself for whatever crosses the middle. Both only
+ * apply while a room is on screen, so the menus keep their flat look.
+ */
+.scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Above the render and the colour grade, below every readout. Anything
+     that carries words is lifted to 4 so the scrim never washes it out. */
+  z-index: 2;
+  background:
+    /* Deeper in the two corners the level name and the buttons live in. */
+    radial-gradient(ellipse 560px 300px at 0% 0%,
+      rgba(6, 10, 16, 0.78) 0%, rgba(6, 10, 16, 0) 72%),
+    radial-gradient(ellipse 420px 230px at 100% 0%,
+      rgba(6, 10, 16, 0.72) 0%, rgba(6, 10, 16, 0) 72%),
+    linear-gradient(to bottom,
+      rgba(6, 10, 16, 0.68) 0,
+      rgba(6, 10, 16, 0.34) 110px,
+      rgba(6, 10, 16, 0) 230px),
+    linear-gradient(to top,
+      rgba(6, 10, 16, 0.72) 0,
+      rgba(6, 10, 16, 0.36) 80px,
+      rgba(6, 10, 16, 0) 185px);
+}
+
+body.ingame .hud-count,
+body.ingame .hud-level h1,
+body.ingame .hud-level p,
+body.ingame .gauge-label,
+body.ingame .gauge-read,
+body.ingame .free-keys,
+body.ingame .free-read,
+body.ingame .probe,
+body.ingame .layer,
+body.ingame .m-bar i,
+body.ingame .m-name,
+body.ingame #walkNote {
+  text-shadow:
+    0 1px 2px rgba(4, 8, 12, 0.95),
+    0 2px 10px rgba(4, 8, 12, 0.75);
+}
+
+/* Brighter than --ink-soft, which was tuned against near-black. */
+body.ingame .hud-count { color: #dbe9f6; opacity: 1; }
+body.ingame .hud-level h1 { color: #fbfdff; }
+body.ingame .free-keys { color: #cfe0f0; opacity: 1; }
+body.ingame .hud-level p { color: #c4d6e8; }
+body.ingame .layer { color: #c2d6e8; }
+body.ingame .layer.on { color: #ffffff; }
+
+/* Buttons floating over the render need a body, not just an outline. */
+body.ingame .icon-btn,
+body.ingame .btn-quiet {
+  background: rgba(10, 18, 28, 0.62);
+  border-color: rgba(170, 210, 245, 0.34);
+  color: #dceaf6;
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+body.ingame .icon-btn:hover,
+body.ingame .btn-quiet:hover {
+  background: rgba(14, 26, 40, 0.85);
+  border-color: rgba(190, 224, 250, 0.6);
+}
+
+/* Everything that carries words sits above the scrim. */
+.room-top, .meters, .layers, .tray, .probe, .walkbar, .freehud,
+.verdict, .svc, .svc-action, .hintcard, .hintbtn, .signoff {
+  z-index: 4;
+}
+
+/* The order list is defined further down the file, so its narrow-window
+   position has to be stated after it to win. */
+@media (max-width: 860px) {
+  .svc { top: 132px; width: 186px; }
+}
+
+/* The tray moves to the bottom in a narrow window and landed on top of the
+   hint. Put the hint above it rather than under it. */
+@media (max-width: 860px) {
+  .hintbtn { bottom: 96px; }
+  .hintcard { bottom: 140px; }
+}
+
+/* ---------------------------------------------------------------- */
+/* The through-line                                                  */
+/* ---------------------------------------------------------------- */
+
+/*
+ * The story is three registers and they need to look like three registers,
+ * or the brief reads as one undifferentiated wall: an epigraph that states
+ * the idea, the brief that gives the situation, and a stake that says what
+ * is being argued. Interludes sit between commissions and are the only place
+ * the game speaks in its own voice.
+ */
+.epigraph {
+  margin: 0 0 14px;
+  padding-left: 14px;
+  border-left: 2px solid var(--accent, #7fd4c1);
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.02rem;
+  line-height: 1.5;
+  color: #cfe0f0;
+  max-width: 46ch;
+}
+
+.stake {
+  margin: 12px 0 0;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  color: #9fd6c6;
+  max-width: 52ch;
+}
+
+.interlude {
+  margin: 20px 0 4px;
+  padding: 16px 18px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+  background: rgba(10, 18, 28, 0.5);
+  max-width: 56ch;
+}
+.interlude p {
+  margin: 0 0 0.85em;
+  font-family: var(--serif);
+  font-size: 0.97rem;
+  line-height: 1.6;
+  color: #dbe7f2;
+}
+.interlude p:last-child { margin-bottom: 0; }
+.interlude.frame { margin-top: 4px; }
+
+/* Sign-off sits bottom-right by default, which in a narrow window is on top
+   of the tray. Lift it to the row above, next to the hint. */
+@media (max-width: 860px) {
+  .signoff { bottom: 96px; }
 }

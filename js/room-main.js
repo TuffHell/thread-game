@@ -10,8 +10,8 @@ import { Studio } from './studio.js';
 import { KINDS } from './room.js';
 import { DOMAINS } from './field.js';
 import {
-  COMMISSIONS, CAST, GAME, loadProgress, saveProgress, isUnlocked, starsFor,
-  finishedRooms
+  COMMISSIONS, CAST, GAME, FRAME, INTERLUDES, CODA, loadProgress, saveProgress,
+  isUnlocked, starsFor, finishedRooms
 } from './campaign.js';
 import { PEOPLE } from './person.js';
 import { palette } from './config.js';
@@ -24,6 +24,25 @@ import { evaluate, bestMove, applyMove } from './solver.js';
 import { SOURCES } from './fragments.js';
 
 const $ = id => document.getElementById(id);
+
+/**
+ * Write to the DOM only when the value actually changed.
+ *
+ * The service and walk loops update the same handful of readouts sixty times
+ * a second, and most frames nothing has moved. Assigning textContent or
+ * innerHTML regardless invalidates layout every time; these skip the write
+ * when it would be a no-op, which is nearly always.
+ */
+const _last = new Map();
+function changed (key, val) {
+  if (_last.get(key) === val) return false;
+  _last.set(key, val);
+  return true;
+}
+const setText = (id, v) => { if (changed(id + '.t', v)) $(id).textContent = v; };
+const setHTML = (id, v) => { if (changed(id + '.h', v)) $(id).innerHTML = v; };
+const setW = (id, v) => { if (changed(id + '.w', v)) $(id).style.width = v; };
+const setH = (id, v) => { if (changed(id + '.y', v)) $(id).style.height = v; };
 
 const LAYER_LABEL = {
   load: 'everything', sound: 'noise', light: 'brightness', flicker: 'flicker',
@@ -169,6 +188,9 @@ function closeOverlays () {
   for (const o of OVERLAYS) $(o).hidden = true;
 }
 function setInGame (on) {
+  // Turns on the scrims that keep the interface readable over a bright room.
+  document.body.classList.toggle('ingame', on);
+  $('scrim').hidden = !on;
   $('viewswitch').hidden = !on;
   $('gamehud').hidden = !on;
   if (!on) {
@@ -207,6 +229,10 @@ $('boardBack').onclick = () => show('title');
 /* Board ------------------------------------------------------------- */
 
 function renderBoard () {
+  // The job description, once, for someone who has not taken a job yet.
+  const started = Object.keys(progress.done).length > 0;
+  paragraphs('boardFrame', started ? null : FRAME);
+
   $('boardList').innerHTML = COMMISSIONS.map(c => {
     const open = isUnlocked(c, progress);
     const stars = progress.done[c.id] ?? 0;
@@ -241,13 +267,35 @@ function renderBoard () {
   }
 }
 
+/**
+ * Fill an element with a passage, one paragraph per blank line, and hide it
+ * when there is nothing to say. The interludes and the coda are the only
+ * long-form writing in the game and they read badly as one block.
+ */
+function paragraphs (id, text) {
+  const el = $(id);
+  if (!el) return;
+  if (!text) { el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  el.innerHTML = text.split('\n\n')
+    .map(t => `<p>${t.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`)
+    .join('');
+}
+
 /* Brief ------------------------------------------------------------- */
 
 function openBrief (c) {
   briefTarget = c;
   $('briefOwner').textContent = `a commission from ${c.owner}`;
   $('briefTitle').textContent = c.title;
+  // The epigraph names the idea, the brief gives the situation, the stake
+  // says what is actually being argued. Three beats, in that order, so the
+  // room you are about to walk into means something before you see it.
+  $('briefEpigraph').textContent = c.epigraph ?? '';
+  $('briefEpigraph').hidden = !c.epigraph;
   $('briefText').textContent = c.brief;
+  $('briefStake').textContent = c.stake ?? '';
+  $('briefStake').hidden = !c.stake;
   $('briefPeople').innerHTML = c.people.map(k =>
     `<div class="cast"><b>${PEOPLE[k].name}</b><p>${CAST[k].story}</p>
      <p class="cast-mech">${PEOPLE[k].blurb}</p></div>`
@@ -291,6 +339,7 @@ $('signoffBtn').onclick = () => {
       cells.map(([k, v]) => `<dd><i>${k}</i><b>${v}</b></dd>`).join('') + '</div>';
   }).join('');
   $('debriefNote').textContent = debriefNote();
+  paragraphs('debriefInterlude', INTERLUDES[commission.id]);
 
   const next = nextCommission();
   $('debriefNext').textContent = next ? 'Next commission' : 'Finish';
@@ -323,6 +372,7 @@ $('debriefNext').onclick = () => {
   const next = nextCommission();
   if (next) { openBrief(next); return; }
   const total = Object.values(progress.done).reduce((a, b) => a + b, 0);
+  paragraphs('endingCoda', CODA);
   $('endingStars').textContent =
     `${total} star${total === 1 ? '' : 's'} across ${Object.keys(progress.done).length} commissions.`;
   show('ending');
@@ -557,34 +607,34 @@ function tickService (dt) {
   sound.setLoad(studio.grid.load[studio.grid.at(walker.x, walker.y)] ?? 0);
 
   // Orders, with their steps ticked off as they are worked.
-  $('svcOrders').innerHTML = service.orders.slice(0, 6).map(o =>
+  setHTML('svcOrders', service.orders.slice(0, 6).map(o =>
     `<div class="svc-order"><b>${o.name}</b><span class="steps">` +
     o.needs.map((n, i) => `<i class="${i < o.done ? 'done' : ''}">•</i>`).join('') +
-    '</span></div>').join('') || '<div class="svc-order"><b>all served</b></div>';
+    '</span></div>').join('') || '<div class="svc-order"><b>all served</b></div>');
 
-  $('svcFlow').style.width = `${service.flow * 100}%`;
-  $('svcFlowNote').textContent = service.flow > 0.6
+  setW('svcFlow', `${Math.round(service.flow * 100)}%`);
+  setText('svcFlowNote', service.flow > 0.6
     ? 'deep in it — actions are quick'
-    : (service.flow > 0.2 ? 'building' : 'do the same thing twice to build it');
+    : (service.flow > 0.2 ? 'building' : 'do the same thing twice to build it'));
 
   // What is happening under your hands.
   const w = service.working;
   if (w) {
     $('svcAction').hidden = false;
-    $('svcRing').style.height = `${Math.min(100, w.t / w.need * 100)}%`;
-    $('svcActionText').textContent = STEP_LABEL[w.step];
+    setH('svcRing', `${Math.round(Math.min(100, w.t / w.need * 100))}%`);
+    setText('svcActionText', STEP_LABEL[w.step]);
   } else {
     const near = service.atHand(walker.x, walker.y);
     $('svcAction').hidden = !near;
     if (near) {
-      $('svcRing').style.height = '0%';
-      $('svcActionText').textContent = `${STEP_LABEL[near.step]} — press E`;
+      setH('svcRing', '0%');
+      setText('svcActionText', `${STEP_LABEL[near.step]} — press E`);
     }
   }
 
-  $('freeRead').textContent = service.finished
+  setText('freeRead', service.finished
     ? ''
-    : `${service.served} of ${service.target} served`;
+    : `${service.served} of ${service.target} served`);
 
   if (service.finished) showServiceReport();
 }
@@ -621,9 +671,9 @@ $('svcBoard').onclick = () => { setInGame(false); renderBoard(); show('board'); 
 function updateMeters (step) {
   if (!step) return;
   const p = studio.person;
-  $('mName').textContent = p.name;
-  $('mReserve').style.width = `${Math.max(0, step.reserve / p.reserve * 100)}%`;
-  $('mAbsorb').style.width = `${step.absorption * 100}%`;
+  setText('mName', p.name);
+  setW('mReserve', `${Math.round(Math.max(0, step.reserve / p.reserve * 100))}%`);
+  setW('mAbsorb', `${Math.round(step.absorption * 100)}%`);
   $('mMask').hidden = !step.masked;
 }
 
@@ -671,16 +721,16 @@ function frame (now) {
         g.classList.toggle('load1', load >= 0.26 && load < 0.42);
         g.classList.toggle('load2', load >= 0.42);
         const top = studio.probeAt(walker.x, walker.y);
-        $('freeRead').textContent = load < 0.16
+        setText('freeRead', load < 0.16
           ? 'quiet here'
-          : (top ? `${READABLE[top.domain] ?? top.domain}, ${Math.round(top.raw * 100)}%` : '');
+          : (top ? `${READABLE[top.domain] ?? top.domain}, ${Math.round(top.raw * 100)}%` : ''));
       } else {
         view.setCutaway(false);
         view.setFloorSurvey(false);
         view.placeVisitor(null);
         walkT = Math.min(1, walkT + dt / Math.max(2600, path.length * 46));
         view.setWalkCamera(path, walkT);
-        $('walkFill').style.width = `${walkT * 100}%`;
+        setW('walkFill', `${Math.round(walkT * 100)}%`);
         $('walkbar').classList.toggle('bad', !studio.result?.ok);
         const idx = Math.floor(walkT * path.length);
         updateMeters(path[Math.min(path.length - 1, idx)]);
@@ -688,14 +738,14 @@ function frame (now) {
         const fresh = ev && idx - ev.index < 26;
         $('interrupt3d').hidden = !fresh;
         if (fresh) {
-          $('interrupt3dText').textContent = ev.text;
-          $('interrupt3dNote').textContent = ev.recoverable
+          setText('interrupt3dText', ev.text);
+          setText('interrupt3dNote', ev.recoverable
             ? 'There was somewhere to settle afterwards.'
-            : 'Nowhere to settle afterwards. Absorption starts again from nothing.';
+            : 'Nowhere to settle afterwards. Absorption starts again from nothing.');
         }
-        $('walkNote').textContent = walkT >= 1
+        setText('walkNote', walkT >= 1
           ? (studio.verdict()?.headline ?? '')
-          : `walking the route ${studio.person.name} actually took`;
+          : `walking the route ${studio.person.name} actually took`);
       }
       view.render();
     }

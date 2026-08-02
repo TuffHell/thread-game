@@ -18,6 +18,7 @@ import { def, KINDS, MATERIALS } from './room.js';
 export const RENDER_W = 480;
 export const RENDER_H = 270;
 const EYE = 158;              // centimetres, average standing eye height
+const V_FOV_MAX = 68;         // degrees; above this the ceiling eats the frame
 const WALL_H = 285;
 
 /* ------------------------------------------------------------------ */
@@ -48,6 +49,94 @@ const PAL = {
   skin:       0xe0a878,
   coat:       0x4f6d8a
 };
+
+/**
+ * One material per colour, shared by every mesh that uses it.
+ *
+ * Building a fresh MeshLambertMaterial inside each model — which is what the
+ * first version did — meant a furnished cafe had roughly 180 unique
+ * materials and forced a renderer state change on almost every draw call.
+ * They are all flat and unlit-ish, so sharing costs nothing visually and is
+ * most of the frame budget back.
+ */
+const MATS = new Map();
+const MATS_SET = new Set();
+export function mat (c) {
+  let m = MATS.get(c);
+  if (!m) {
+    m = new THREE.MeshLambertMaterial({ color: c });
+    MATS.set(c, m);
+    MATS_SET.add(m);
+  }
+  return m;
+}
+
+/**
+ * Fold a group's plain meshes into one draw call per material.
+ *
+ * A cafe is about thirty pieces of furniture and each is built from six to
+ * ten little boxes, which came to four hundred draw calls a frame — trivial
+ * geometry, but four hundred round trips through the driver, and that is
+ * what a weaker machine feels as stutter. Nothing here moves independently
+ * of its parent, so the parts can be welded once at build time. Anything
+ * with its own material (glass, glow, anything transparent) is left alone.
+ */
+function bake (group) {
+  const buckets = new Map();
+  const keep = [];
+  for (const c of group.children) {
+    const ok = c.isMesh && c.children.length === 0 && MATS_SET.has(c.material) &&
+               c.geometry.index && c.geometry.attributes.uv;
+    if (!ok) { keep.push(c); continue; }
+    const k = c.material.uuid + (c.castShadow ? '+s' : '');
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k).push(c);
+  }
+  if (buckets.size === 0) return;
+
+  group.clear();
+  for (const c of keep) group.add(c);
+
+  for (const parts of buckets.values()) {
+    if (parts.length === 1) { group.add(parts[0]); continue; }
+    const geos = parts.map(m => {
+      const gg = m.geometry.clone();
+      m.updateMatrix();
+      gg.applyMatrix4(m.matrix);
+      return gg;
+    });
+    let vTotal = 0, iTotal = 0;
+    for (const gg of geos) { vTotal += gg.attributes.position.count; iTotal += gg.index.count; }
+
+    const pos = new Float32Array(vTotal * 3);
+    const nor = new Float32Array(vTotal * 3);
+    const uvs = new Float32Array(vTotal * 2);
+    const idx = new (vTotal > 65535 ? Uint32Array : Uint16Array)(iTotal);
+    let v = 0, i = 0;
+    for (const gg of geos) {
+      pos.set(gg.attributes.position.array, v * 3);
+      nor.set(gg.attributes.normal.array, v * 3);
+      uvs.set(gg.attributes.uv.array, v * 2);
+      const gi = gg.index.array;
+      for (let k = 0; k < gi.length; k++) idx[i + k] = gi[k] + v;
+      v += gg.attributes.position.count;
+      i += gi.length;
+      gg.dispose();
+    }
+    const merged = new THREE.BufferGeometry();
+    merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    merged.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    merged.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    merged.setIndex(new THREE.BufferAttribute(idx, 1));
+    merged.computeBoundingSphere();
+
+    const m = new THREE.Mesh(merged, parts[0].material);
+    m.castShadow = parts[0].castShadow;
+    m.receiveShadow = true;
+    group.add(m);
+    for (const part of parts) part.geometry.dispose();
+  }
+}
 
 const wallColor = m => ({
   tile: PAL.wallTile, glass: PAL.wallGlass, brick: PAL.wallBrick,
@@ -158,6 +247,7 @@ export class View3D {
     floor.receiveShadow = true;
     s.add(floor);
     this.floor = floor;
+    this._survey = true;   // built carrying the survey map
 
     const ceil = new THREE.Mesh(
       new THREE.PlaneGeometry(room.w, room.h),
@@ -206,6 +296,7 @@ export class View3D {
     s.add(skirt);
 
     this.addOutside(room);
+    this.addFabric(room);
 
     for (const t of room.things) if (t.placed) this.addThing(t);
 
@@ -216,7 +307,7 @@ export class View3D {
     const key = new THREE.DirectionalLight(0xffe9c4, 1.8);
     key.position.set(cx - 400, 900, cz - 500);
     key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.mapSize.set(512, 512);   // plenty at 480x270
     const d = Math.max(room.w, room.h);
     Object.assign(key.shadow.camera, { left: -d, right: d, top: d, bottom: -d, near: 10, far: 2600 });
     key.shadow.camera.updateProjectionMatrix();
@@ -351,21 +442,96 @@ export class View3D {
     return this._woodTex;
   }
 
+  /**
+   * The building itself: beams, rails, skirting.
+   *
+   * Furniture was doing all the work and the room around it was six flat
+   * planes, so the top third of a first-person frame was a blank cream slab —
+   * the void. None of this is decoration for its own sake: a beam overhead
+   * and a rail at shoulder height are what tell your eye how big a room is
+   * and how far away its far side is. They are also what every cosy pixel
+   * interior has and ours did not.
+   *
+   * All of it welds into one group, so the whole lot costs three draw calls.
+   */
+  addFabric (room) {
+    const g = new THREE.Group();
+    const cx = room.w / 2, cz = room.h / 2;
+
+    const add = (geo, colour, x, y, z, rotY = 0, shadow = false) => {
+      const m = new THREE.Mesh(geo, mat(colour));
+      m.position.set(x, y, z);
+      m.rotation.y = rotY;
+      m.castShadow = shadow;
+      m.receiveShadow = true;
+      g.add(m);
+    };
+
+    // Beams across the short axis, spaced so a room reads as a rhythm rather
+    // than a box. Hung just under the ceiling with a shadow gap.
+    const across = room.w >= room.h;
+    const span = (across ? room.h : room.w) + 20;
+    const runLen = across ? room.w : room.h;
+    const gap = 150;
+    const count = Math.max(2, Math.round(runLen / gap) - 1);
+    const beamGeo = new THREE.BoxGeometry(20, 22, span);
+    for (let i = 1; i <= count; i++) {
+      const t = (i / (count + 1));
+      const at = t * runLen;
+      if (across) add(beamGeo, 0x8a6440, at, WALL_H - 13, cz);
+      else add(beamGeo, 0x8a6440, cx, WALL_H - 13, at, Math.PI / 2);
+    }
+    // A plate along the beams' ends, which is what stops them floating.
+    const plateGeo = new THREE.BoxGeometry(across ? room.w : 18, 10, across ? 18 : room.h);
+    add(plateGeo, 0x7a5636, across ? cx : 9, WALL_H - 27, across ? 9 : cz);
+    add(plateGeo, 0x7a5636, across ? cx : room.w - 9, WALL_H - 27, across ? room.h - 9 : cz);
+
+    // Skirting and a picture rail on every wall, set just inside the face.
+    for (const w of room.walls) {
+      const dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+      const len = Math.hypot(dx, dy);
+      if (len < 40) continue;
+      const mx = (w.x1 + w.x2) / 2, my = (w.y1 + w.y2) / 2;
+      // Whichever normal points into the room.
+      let nx = -dy / len, ny = dx / len;
+      if (nx * (cx - mx) + ny * (cz - my) < 0) { nx = -nx; ny = -ny; }
+      const rotY = -Math.atan2(dy, dx);
+      const off = 7;
+      const dark = w.material === 'glass';
+      if (dark) continue;                    // glazing gets no joinery
+
+      add(new THREE.BoxGeometry(len, 14, 4), 0xbfae94,
+          mx + nx * off, 7, my + ny * off, rotY);            // skirting
+      add(new THREE.BoxGeometry(len, 6, 4), 0xbfae94,
+          mx + nx * off, 186, my + ny * off, rotY);          // picture rail
+      add(new THREE.BoxGeometry(len, 9, 4), 0xa8977c,
+          mx + nx * off, WALL_H - 6, my + ny * off, rotY);   // cornice
+    }
+
+    bake(g);
+    this.scene.add(g);
+    this.fabric = g;
+  }
+
   /** A low-poly, chunky shape per kind. Readable at 384 wide is the only bar. */
   addThing (t) {
     const D = def(t);
     const g = new THREE.Group();
-    const col = c => new THREE.MeshLambertMaterial({ color: c });
+    const col = mat;
     const box = (w, h, d2, c, y = 0) => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d2), col(c));
       m.position.y = y + h / 2;
-      m.castShadow = true; m.receiveShadow = true;
+      // Only sizeable things cast: a shadow from a 7cm cup is invisible at
+      // this resolution and costs a whole extra draw in the shadow pass.
+      m.castShadow = Math.max(w, h, d2) > 30;
+      m.receiveShadow = true;
       return m;
     };
     const cyl = (r, h, c, y = 0, seg = 8) => {
       const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg), col(c));
       m.position.y = y + h / 2;
-      m.castShadow = true; m.receiveShadow = true;
+      m.castShadow = Math.max(r * 2, h) > 30;
+      m.receiveShadow = true;
       return m;
     };
 
@@ -594,6 +760,7 @@ export class View3D {
         g.add(box(D.r, 60, D.r, PAL.metal));
     }
 
+    bake(g);
     g.position.set(t.x, 0, t.y);
     g.userData.thingId = t.id;
     this.scene.add(g);
@@ -610,7 +777,7 @@ export class View3D {
   ensureVisitor () {
     if (this.visitor) return this.visitor;
     const g = new THREE.Group();
-    const col = c => new THREE.MeshLambertMaterial({ color: c });
+    const col = mat;
 
     const legs = new THREE.Mesh(new THREE.BoxGeometry(24, 62, 16), col(PAL.dark));
     legs.position.y = 31;
@@ -692,6 +859,11 @@ export class View3D {
    */
   setFloorSurvey (on) {
     if (!this.floor) return;
+    // Swapping the map sets material.needsUpdate, which makes three.js
+    // recompile the shader program. Called unguarded from the frame loop that
+    // is a recompile every frame, and it was most of the stutter.
+    if (this._survey === on) return;
+    this._survey = on;
     if (on) {
       this.floor.material.map = this.heatTex;
       this.floor.material.color.set(0xffffff);
@@ -792,7 +964,14 @@ export class View3D {
   applyFov (aspect, horizontalDeg) {
     const h = horizontalDeg * Math.PI / 180;
     const v = 2 * Math.atan(Math.tan(h / 2) / Math.max(0.35, aspect));
-    const deg = Math.min(110, v * 180 / Math.PI);
+    // Cap the vertical hard.
+    //
+    // A portrait window turned a 78-degree horizontal into 104 vertical, and
+    // at eye height that means half the screen is ceiling — the empty band
+    // across the top that kept getting reported as a void. In a tall window
+    // you cannot have both; a narrower horizontal is the honest trade, and it
+    // is what every first-person game does on a phone.
+    const deg = Math.min(V_FOV_MAX, v * 180 / Math.PI);
     if (Math.abs(deg - this.camera.fov) > 0.4) {
       this.camera.fov = deg;
       this.camera.updateProjectionMatrix();

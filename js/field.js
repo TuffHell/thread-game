@@ -36,10 +36,14 @@ function warnOnce (kind, dom) {
 export function makeGrid (r, cell = 12) {
   const cols = Math.ceil(r.w / cell);
   const rows = Math.ceil(r.h / cell);
-  const layers = {};
-  for (const d of DOMAINS) layers[d] = new Float32Array(cols * rows);
+  const layers = {}, raw = {};
+  for (const d of DOMAINS) {
+    layers[d] = new Float32Array(cols * rows);
+    raw[d] = new Float32Array(cols * rows);
+  }
   return {
-    cell, cols, rows, layers,
+    cell, cols, rows, layers, raw,
+    reverb: new Float32Array(cols * rows).fill(1),
     blocked: new Uint8Array(cols * rows),
     load: new Float32Array(cols * rows),
     cx: i => (i % cols + 0.5) * cell,
@@ -88,51 +92,191 @@ export function compute (r, grid) {
     }
   }
 
-  // Emitters and absorbers.
+  /*
+   * Emitters and absorbers.
+   *
+   * This is the hot loop of the whole game — it reruns on every drag and,
+   * until it was made to skip, sixty times over inside every hint. Two things
+   * matter here and nothing else does. Each source's radii and layer targets
+   * are worked out once instead of being pulled apart with Object.entries for
+   * every one of four thousand cells; and a source that cannot possibly reach
+   * a cell is rejected on a squared distance before any square root, falloff
+   * or raycast happens. Most pairs fail that test, which is the point.
+   */
+  const srcs = [];
+  for (const t of placed) {
+    const D = def(t);
+    const emits = [], absorbs = [];
+    let maxR = 0;
+
+    for (const dom in D.emits ?? {}) {
+      if (!layers[dom]) { warnOnce(t.kind, dom); continue; }
+      const radius = (dom === 'clutter' ? D.clutterRadius : D.radius?.[dom]) ?? 260;
+      emits.push({
+        layer: layers[dom], amount: D.emits[dom], radius,
+        // Only sound and light care about what is in the way.
+        occluded: dom === 'sound' || dom === 'light' || dom === 'glare'
+      });
+      if (radius > maxR) maxR = radius;
+    }
+    for (const dom in D.absorbs ?? {}) {
+      if (!layers[dom]) { warnOnce(t.kind, dom); continue; }
+      const radius = D.radius?.[dom] ?? 220;
+      absorbs.push({ layer: layers[dom], amount: D.absorbs[dom], radius });
+      if (radius > maxR) maxR = radius;
+    }
+    if (emits.length || absorbs.length) {
+      srcs.push({ x: t.x, y: t.y, emits, absorbs, maxR2: maxR * maxR });
+    }
+  }
+
   for (let i = 0; i < cols * rows; i++) {
     const x = grid.cx(i), y = grid.cy(i);
 
-    for (const t of placed) {
-      const D = def(t);
-      const dist = Math.hypot(x - t.x, y - t.y);
+    for (const s of srcs) {
+      const dx = x - s.x, dy = y - s.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= s.maxR2) continue;
+      const dist = Math.sqrt(d2);
 
-      if (D.emits) {
-        for (const [dom, amount] of Object.entries(D.emits)) {
-          if (!layers[dom]) { warnOnce(t.kind, dom); continue; }
-          const radius = (dom === 'clutter' ? D.clutterRadius : D.radius?.[dom]) ?? 260;
-          const f = falloff(dist, radius);
-          if (f <= 0) continue;
-          // Only sound and light care about what is in the way.
-          const through = (dom === 'sound' || dom === 'light' || dom === 'glare')
-            ? transmission(r, t.x, t.y, x, y) : 1;
-          layers[dom][i] += amount * f * through;
-        }
+      for (const e of s.emits) {
+        const f = falloff(dist, e.radius);
+        if (f <= 0) continue;
+        const through = e.occluded ? transmission(r, s.x, s.y, x, y) : 1;
+        e.layer[i] += e.amount * f * through;
       }
-
-      if (D.absorbs) {
-        for (const [dom, amount] of Object.entries(D.absorbs)) {
-          if (!layers[dom]) { warnOnce(t.kind, dom); continue; }
-          const radius = D.radius?.[dom] ?? 220;
-          const f = falloff(dist, radius);
-          if (f > 0) layers[dom][i] -= amount * f;
-        }
+      for (const a of s.absorbs) {
+        const f = falloff(dist, a.radius);
+        if (f > 0) a.layer[i] -= a.amount * f;
       }
     }
 
-    // Reverb. A hard room is loud far away from anything loud.
-    layers.sound[i] *= 1 + hardSurfaceNear(r, x, y) * 0.55;
+    // Reverb. A hard room is loud far away from anything loud. It depends
+    // only on the walls, so it is worked out once and kept — patching a
+    // moved object back in later must not pay for it again.
+    grid.reverb[i] = 1 + hardSurfaceNear(r, x, y) * 0.55;
 
     // Predictability: not being able to see the way out is its own load.
     layers.exposure[i] = seesThrough(r, x, y, r.door.x, r.door.y) ? 0 : 0.85;
-
-    // Clamp to 0..1. Sound in particular compounds past 1 once several
-    // sources and a hard room stack up, and past a point "louder than
-    // unbearable" is not a distinction worth carrying into the weighting.
-    for (const d of DOMAINS) layers[d][i] = Math.max(0, Math.min(1, layers[d][i]));
   }
+
+  // The accumulation before reverb and clamping, which is the only form a
+  // single source's contribution can be added to or taken away from.
+  for (const d of DOMAINS) grid.raw[d].set(layers[d]);
+  refinish(grid);
 
   computeEscape(r, grid);
   return grid;
+}
+
+/**
+ * Turn the raw accumulation into the published layers: reverb on sound, then
+ * everything clamped.
+ *
+ * Sound in particular compounds past 1 once several sources and a hard room
+ * stack up, and past a point "louder than unbearable" is not a distinction
+ * worth carrying into the weighting.
+ *
+ * With no cell list it does the whole grid, which is what compute wants.
+ * With one it does only the cells a patch touched.
+ */
+function refinish (grid, cells = null) {
+  const { layers, raw, reverb } = grid;
+  const n = grid.cols * grid.rows;
+  const doms = DOMAINS.filter(d => d !== 'escape' && d !== 'exposure');
+  const each = i => {
+    for (const d of doms) {
+      const v = d === 'sound' ? raw[d][i] * reverb[i] : raw[d][i];
+      layers[d][i] = v < 0 ? 0 : (v > 1 ? 1 : v);
+    }
+  };
+  if (cells) for (const i of cells) each(i);
+  else for (let i = 0; i < n; i++) each(i);
+}
+
+/**
+ * A copy of a computed field, cheap enough to make sixty of.
+ *
+ * The read-only parts — what is blocked, how reverberant each cell is — are
+ * shared rather than copied, because moving a chair changes neither.
+ */
+export function cloneGrid (grid) {
+  const g = { ...grid, layers: {}, raw: {} };
+  for (const d of DOMAINS) {
+    g.layers[d] = grid.layers[d].slice();
+    g.raw[d] = grid.raw[d].slice();
+  }
+  g.load = grid.load.slice();
+  return g;
+}
+
+/**
+ * Add or take away one object's contribution, in place.
+ *
+ * This is what makes the hint quick. Recomputing the whole field to find out
+ * what happens if you move the grinder two metres costs fifty milliseconds
+ * and does four thousand cells' worth of arithmetic to answer a question
+ * about one object. This touches only the cells that object can reach, and
+ * only for the domains it actually affects.
+ *
+ * Returns the cells it changed, or null if the object does nothing to any
+ * field and there was nothing to do.
+ */
+export function patchSource (r, grid, t, sign) {
+  const D = def(t);
+  const specs = [];
+  let maxR = 0;
+
+  for (const dom in D.emits ?? {}) {
+    if (!grid.raw[dom]) { warnOnce(t.kind, dom); continue; }
+    const radius = (dom === 'clutter' ? D.clutterRadius : D.radius?.[dom]) ?? 260;
+    specs.push({
+      arr: grid.raw[dom], amount: D.emits[dom], radius, way: 1,
+      occluded: dom === 'sound' || dom === 'light' || dom === 'glare'
+    });
+    if (radius > maxR) maxR = radius;
+  }
+  for (const dom in D.absorbs ?? {}) {
+    if (!grid.raw[dom]) { warnOnce(t.kind, dom); continue; }
+    const radius = D.radius?.[dom] ?? 220;
+    specs.push({ arr: grid.raw[dom], amount: D.absorbs[dom], radius, way: -1, occluded: false });
+    if (radius > maxR) maxR = radius;
+  }
+  if (!specs.length) return null;
+
+  const { cols, rows, cell } = grid;
+  const c0 = Math.max(0, Math.floor((t.x - maxR) / cell));
+  const c1 = Math.min(cols - 1, Math.floor((t.x + maxR) / cell));
+  const r0 = Math.max(0, Math.floor((t.y - maxR) / cell));
+  const r1 = Math.min(rows - 1, Math.floor((t.y + maxR) / cell));
+  const maxR2 = maxR * maxR;
+  const touched = [];
+
+  for (let rr = r0; rr <= r1; rr++) {
+    for (let cc = c0; cc <= c1; cc++) {
+      const i = rr * cols + cc;
+      const x = grid.cx(i), y = grid.cy(i);
+      const dx = x - t.x, dy = y - t.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= maxR2) continue;
+      const dist = Math.sqrt(d2);
+      let hit = false;
+      for (const sp of specs) {
+        const f = falloff(dist, sp.radius);
+        if (f <= 0) continue;
+        const through = sp.occluded ? transmission(r, t.x, t.y, x, y) : 1;
+        sp.arr[i] += sign * sp.way * sp.amount * f * through;
+        hit = true;
+      }
+      if (hit) touched.push(i);
+    }
+  }
+  return touched;
+}
+
+/** Republish the cells a patch touched. */
+export function settle (grid, cells) {
+  refinish(grid, cells);
 }
 
 /**
@@ -207,17 +351,64 @@ function computeEscape (r, grid) {
  */
 export function combine (grid, weights = DEFAULT_WEIGHTS) {
   const { load, layers } = grid;
-  const doms = DOMAINS.filter(d => (weights[d] ?? 0) > 0);
-  const maxW = Math.max(...doms.map(d => weights[d]));
+  // The arrays and scale factors are pulled out of the loop: this runs once
+  // per person per visit, over every cell, and property lookups through two
+  // objects four thousand times a call are most of what it used to cost.
+  const arrs = [], scale = [];
+  let maxW = 0;
+  for (const d of DOMAINS) if ((weights[d] ?? 0) > maxW) maxW = weights[d];
+  for (const d of DOMAINS) {
+    const w = weights[d] ?? 0;
+    if (w <= 0) continue;
+    arrs.push(layers[d]);
+    scale.push(w / maxW);
+  }
+  const k = arrs.length;
+  const spread = 0.22 / k;
 
   for (let i = 0; i < load.length; i++) {
     let worst = 0, sum = 0;
-    for (const d of doms) {
-      const v = (layers[d][i] ?? 0) * (weights[d] / maxW);
+    for (let j = 0; j < k; j++) {
+      const v = arrs[j][i] * scale[j];
       if (v > worst) worst = v;
       sum += v;
     }
-    load[i] = Math.min(1, worst * 0.78 + (sum / doms.length) * 0.22);
+    const v = worst * 0.78 + sum * spread;
+    load[i] = v > 1 ? 1 : v;
+  }
+  return load;
+}
+
+/**
+ * Recombine only the cells a patch touched.
+ *
+ * Everything else in the load field is already right for these weights,
+ * provided the caller put the right person's load array back first — which
+ * is the whole trick that makes a patched trial cheap.
+ */
+export function combineCells (grid, weights, cells) {
+  const { load, layers } = grid;
+  const arrs = [], scale = [];
+  let maxW = 0;
+  for (const d of DOMAINS) if ((weights[d] ?? 0) > maxW) maxW = weights[d];
+  for (const d of DOMAINS) {
+    const w = weights[d] ?? 0;
+    if (w <= 0) continue;
+    arrs.push(layers[d]);
+    scale.push(w / maxW);
+  }
+  const k = arrs.length;
+  const spread = 0.22 / k;
+
+  for (const i of cells) {
+    let worst = 0, sum = 0;
+    for (let j = 0; j < k; j++) {
+      const v = arrs[j][i] * scale[j];
+      if (v > worst) worst = v;
+      sum += v;
+    }
+    const v = worst * 0.78 + sum * spread;
+    load[i] = v > 1 ? 1 : v;
   }
   return load;
 }

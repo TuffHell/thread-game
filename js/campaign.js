@@ -17,6 +17,79 @@ export const GAME = {
   strap: 'A game about rooms, and who they are built for.'
 };
 
+/**
+ * The through-line.
+ *
+ * Six commissions were six errands. What ties them together is not a plot —
+ * nobody is in peril and nothing is revealed in act three — but an argument
+ * that gets harder to duck each time you agree with it. It starts with one
+ * person who could go somewhere else, moves to a room nobody can opt out of,
+ * and ends with three people whose needs do not agree, so that the last
+ * decision you make is the one the whole game is about: you cannot average
+ * your way to a room that works.
+ *
+ * The surveyor is deliberately thin. You are not the story. You are the
+ * person who measures, and the only thing you ever get to change is the
+ * building.
+ */
+export const FRAME =
+  'You survey rooms for access. Not the ramp-and-handrail kind — someone ' +
+  'else does that, and does it well. You do the part nobody has a form for: ' +
+  'whether a person can actually be in a room long enough to use it.\n\n' +
+  'The work is unglamorous. You are given a floor, a budget that is really ' +
+  'the owner\u2019s patience, and the names of people the room is currently ' +
+  'failing. You move things. You never ask anyone to cope better.'
+
+/**
+ * What happens between commissions.
+ *
+ * Shown once, on the debrief, after the room it belongs to is signed off.
+ * Short on purpose: a note, an overheard line, a message. This is where the
+ * consequence of the last room arrives and the reason for the next one gets
+ * set up, and it is doing the job that a cutscene would do badly.
+ */
+export const INTERLUDES = {
+  'cafe-1':
+    'Franco emails a photograph of the new layout with the subject line ' +
+    '\u201cLOOK\u201d and no body text. Three weeks later he adds: she comes ' +
+    'in on Thursdays now as well.\n\nThe librarian two streets over reads ' +
+    'the same local paper as Franco.',
+  'library-1':
+    'Ollie does not say anything to anyone. He just starts turning up ' +
+    'again, in the corner under the new lamp, and stays until closing.\n\n' +
+    'This is the part of the job that has no metric. An absence ends. ' +
+    'Nobody writes in to tell you.',
+  'cafe-2':
+    'Two rules and a grant. Franco keeps the grinder where he wants it and ' +
+    'the room still works, which he takes as proof that he was right all ' +
+    'along, and you let him.\n\nThe practice manager at the health centre ' +
+    'has been forwarded your name by someone who did not ask you first.',
+  'clinic-1':
+    'The practice manager signs the survey without reading it and asks ' +
+    'whether you also do offices.\n\nJun sends four words: I stayed inside ' +
+    'this time.\n\nThat is the whole report. It is better than the survey.',
+  'hall-1':
+    'The committee would like to say, for the minutes, that they have ' +
+    'always been an inclusive hall.\n\nThey would also like to book you ' +
+    'again for the open morning, with less money, because the grant is ' +
+    'spent. Mara, Ollie and Jun are all coming. They do not know each ' +
+    'other. They will all be in one room at once.'
+};
+
+/**
+ * The last word, after the last signature.
+ *
+ * Deliberately not triumphant. The rooms are better and the world is not
+ * fixed, and pretending otherwise would undo the argument the game has spent
+ * six commissions making carefully.
+ */
+export const CODA =
+  'Nothing you did was expensive. A panel, a lamp, a corner to sit in, a ' +
+  'grinder two metres to the left. The rooms were always able to be like ' +
+  'this.\n\nWhat you actually changed was who counts as a person the room ' +
+  'is for. That is not a small thing and it is not a finished thing. There ' +
+  'are more rooms.';
+
 /** The recurring cast. Mechanical profiles live in person.js. */
 export const CAST = {
   mara: {
@@ -43,6 +116,8 @@ export const CAST = {
 export const COMMISSIONS = [
   {
     id: 'cafe-1',
+    epigraph: 'Nobody has complained. That is not the same as nothing being wrong.',
+    stake: 'One person, one room, and an owner who already wants to know.',
     room: 'cafe',
     title: 'The Tuesday Café',
     people: ['mara'],
@@ -58,6 +133,8 @@ export const COMMISSIONS = [
   },
   {
     id: 'library-1',
+    epigraph: 'The regulars you notice are the ones who turn up.',
+    stake: 'An absence is evidence. You just have to be the kind of person who counts it.',
     room: 'library',
     title: 'The Reading Room',
     people: ['ollie'],
@@ -72,6 +149,8 @@ export const COMMISSIONS = [
   },
   {
     id: 'cafe-2',
+    epigraph: 'Every room belongs to somebody, and somebody has rules.',
+    stake: 'Two people who need different things, and an owner who will not move the grinder.',
     room: 'cafe',
     title: 'Tuesday, Again',
     people: ['mara', 'jun'],
@@ -92,6 +171,8 @@ export const COMMISSIONS = [
   },
   {
     id: 'clinic-1',
+    epigraph: 'You can decide a caf\u00e9 is not worth it. You cannot decide that about a clinic.',
+    stake: 'The first room where leaving is not an option.',
     room: 'clinic',
     title: 'The Waiting Room',
     people: ['jun'],
@@ -110,6 +191,8 @@ export const COMMISSIONS = [
   },
   {
     id: 'hall-1',
+    epigraph: 'A room that is fine on average is a room that fails somebody in particular.',
+    stake: 'Noise, flicker and glare, in a hall built to echo.',
     room: 'hall',
     title: 'The Community Hall',
     people: ['mara', 'ollie'],
@@ -127,6 +210,8 @@ export const COMMISSIONS = [
   },
   {
     id: 'hall-2',
+    epigraph: 'Three people. Their needs do not agree. Neither does the budget.',
+    stake: 'The argument, with nothing left over to hide behind.',
     room: 'hall',
     title: 'Open Morning',
     people: ['mara', 'ollie', 'jun'],
