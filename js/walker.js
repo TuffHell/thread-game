@@ -13,6 +13,14 @@
  * why they are bad.
  */
 
+import { KINDS } from './room.js';
+
+/** Things you cannot walk through on foot. */
+const SOLID = new Set([
+  'counter', 'seat', 'chair', 'shelf', 'booth', 'soft', 'machine',
+  'grinder', 'bin', 'pot', 'screen', 'customer', 'menu'
+]);
+
 const SPEED = 210;          // cm per second, an unhurried walk
 const TURN = 2.4;           // radians per second on the arrow keys
 const RADIUS = 22;          // shoulder room for collision
@@ -39,11 +47,25 @@ export class Walker {
   up (code) { this.keys.delete(code); }
   lookBy (dx) { this.yaw -= dx * 0.0032; }
 
-  /** Would this point put us inside a wall or a counter? */
-  free (grid, x, y) {
+  /**
+   * Would this point put us inside something?
+   *
+   * The blocked grid only knows about walls and the counter, because that is
+   * all the visitor's pathfinder needs. A person on foot also has to not walk
+   * through tables, chairs, shelves and other people, so furniture is checked
+   * directly. Walking through a table is the single fastest way to tell a
+   * player that none of this is real.
+   */
+  free (grid, x, y, room) {
     for (const [ox, oy] of [[0, 0], [RADIUS, 0], [-RADIUS, 0], [0, RADIUS], [0, -RADIUS]]) {
       const i = grid.at(x + ox, y + oy);
       if (grid.blocked[i]) return false;
+    }
+    if (!room) return true;
+    for (const t of room.things) {
+      if (!t.placed || !SOLID.has(t.kind)) continue;
+      const d = KINDS[t.kind];
+      if (Math.hypot(x - t.x, y - t.y) < (d?.solidR ?? d?.r ?? 20) + RADIUS * 0.5) return false;
     }
     return true;
   }
@@ -63,14 +85,18 @@ export class Walker {
     const len = Math.hypot(fwd, strafe) || 1;
     const step = SPEED * dt / 1000;
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
-    const dx = (sin * fwd / len + cos * strafe / len) * step;
-    const dy = (cos * fwd / len - sin * strafe / len) * step;
+
+    // Forward is (sin, cos). The camera is rotated by yaw + PI, so its local
+    // +X — what the player sees as right — lands on (-cos, sin). Strafing by
+    // (cos, -sin) is exactly backwards, which is why D walked left.
+    const dx = (sin * fwd / len - cos * strafe / len) * step;
+    const dy = (cos * fwd / len + sin * strafe / len) * step;
 
     // Axis-separated so sliding along a wall works instead of sticking.
     const nx = Math.max(20, Math.min(room.w - 20, this.x + dx));
-    if (this.free(grid, nx, this.y)) this.x = nx;
+    if (this.free(grid, nx, this.y, room)) this.x = nx;
     const ny = Math.max(20, Math.min(room.h - 20, this.y + dy));
-    if (this.free(grid, this.x, ny)) this.y = ny;
+    if (this.free(grid, this.x, ny, room)) this.y = ny;
     return true;
   }
 

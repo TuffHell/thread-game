@@ -38,7 +38,7 @@
  * the cost and then shows it is payable, rather than pretending it is zero.
  */
 
-import { def } from './room.js';
+import { def, thing } from './room.js';
 
 export const STEPS = ['grind', 'pull', 'steam', 'serve'];
 
@@ -111,6 +111,48 @@ export class Service {
     // calmer thing to look at than a queue that never ends.
     this.target = 8;
     for (let i = 0; i < this.target; i++) this.orders.push(makeOrder(i + 1));
+    this.spawnCustomers();
+  }
+
+  /**
+   * Put a person in the room for every order.
+   *
+   * They are real things in room.things, so they emit crowd and sound into
+   * the same field everything else does, and they are solid to walk around.
+   * The loop this creates is the good one: the café starts loud because it
+   * is full, and every drink you finish is one fewer body and one less
+   * voice. You are not clearing a queue, you are quieting a room.
+   */
+  spawnCustomers () {
+    this.clearCustomers();
+    const spots = this.waitingSpots();
+    this.orders.forEach((o, i) => {
+      const p = spots[i % spots.length];
+      const jitter = (i / spots.length | 0) * 46;
+      const c = thing('customer', p.x + jitter, p.y + jitter);
+      c.isCustomer = true;
+      o.customer = c;
+      this.room.things.push(c);
+    });
+  }
+
+  clearCustomers () {
+    this.room.things = this.room.things.filter(t => !t.isCustomer);
+  }
+
+  /** Standing room: near the counter, and beside the tables. */
+  waitingSpots () {
+    const counter = this.room.things.find(t => t.placed && t.kind === 'counter');
+    const out = [];
+    if (counter) {
+      for (const [dx, dy] of [[-150, 120], [-60, 170], [40, 190], [-200, 40]]) {
+        out.push({ x: counter.x + dx, y: counter.y + dy });
+      }
+    }
+    for (const t of this.room.things) {
+      if (t.placed && t.kind === 'seat') out.push({ x: t.x + 70, y: t.y + 30 });
+    }
+    return out.length ? out : [{ x: this.room.w / 2, y: this.room.h / 2 }];
   }
 
   /** Where the station for a step physically is, in this room. */
@@ -203,6 +245,10 @@ export class Service {
     let completed = null;
     if (order.done >= order.needs.length) {
       this.orders = this.orders.filter(o => o !== order);
+      // They take their coffee and go, and the room gets quieter for it.
+      if (order.customer) {
+        this.room.things = this.room.things.filter(t => t !== order.customer);
+      }
       this.served++;
       completed = order;
       if (this.served >= this.target) this.finished = true;

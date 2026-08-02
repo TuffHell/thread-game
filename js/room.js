@@ -93,6 +93,14 @@ export const KINDS = {
   bin:     { label: 'Bin', r: 20, cost: 0, emits: { smell: 0.4, clutter: 0.12 }, radius: { smell: 200 }, clutterRadius: 120 },
   pot:     { label: 'Plant', r: 24, cost: 0, absorbs: { sound: 0.12, glare: 0.15 }, radius: { sound: 140, glare: 150 } },
 
+  // A person waiting for their coffee. Present only during service, added to
+  // and removed from the room by service.js, so their noise and their bodies
+  // go through exactly the same field and collision machinery as the
+  // furniture. Serving someone genuinely makes the room quieter.
+  customer: { label: 'Customer', r: 26, cost: 0, movable: false, solidR: 24,
+              emits: { crowd: 0.34, sound: 0.16 },
+              radius: { crowd: 190, sound: 200 } },
+
   // A fitted cover for a fluorescent tube. The real object exists, is cheap,
   // and is one of the first things sensory-friendly refits actually do:
   // it kills the flicker and softens the light without rewiring anything.

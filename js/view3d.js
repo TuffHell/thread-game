@@ -184,6 +184,27 @@ export class View3D {
       this.wallMeshes.push(m);
     }
 
+    // Ground the building sits on, so the dollhouse view is a place in a
+    // world rather than a box hanging in nothing.
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(room.w * 6, room.h * 6),
+      new THREE.MeshLambertMaterial({ color: 0x8fa08a })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set(cx, -6, cz);
+    ground.receiveShadow = true;
+    s.add(ground);
+
+    // A pavement skirt around the footprint.
+    const skirt = new THREE.Mesh(
+      new THREE.PlaneGeometry(room.w + 260, room.h + 260),
+      new THREE.MeshLambertMaterial({ color: 0xa9a294 })
+    );
+    skirt.rotation.x = -Math.PI / 2;
+    skirt.position.set(cx, -3, cz);
+    skirt.receiveShadow = true;
+    s.add(skirt);
+
     this.addOutside(room);
 
     for (const t of room.things) if (t.placed) this.addThing(t);
@@ -232,6 +253,16 @@ export class View3D {
       mesh.renderOrder = -1;
       this.scene.add(mesh);
       this.outside = mesh;
+      this.outsideTex = tex;
+
+      // Windows built before the painting arrived have no glass in them yet.
+      for (const t of this.room.things) {
+        if (t.placed && t.kind === 'window') {
+          const old = this.thingMeshes.get(t.id);
+          if (old) { this.scene.remove(old); this.thingMeshes.delete(t.id); }
+          this.addThing(t);
+        }
+      }
     }, undefined, () => { /* no asset, no outside; the sky colour stands in */ });
   }
 
@@ -339,20 +370,58 @@ export class View3D {
     };
 
     switch (t.kind) {
-      case 'counter':
-        g.add(box(D.r * 2, 105, D.r * 1.3, PAL.wallWood));
-        g.add(box(D.r * 2.1, 8, D.r * 1.4, PAL.metal, 105));
+      case 'counter': {
+        g.add(box(D.r * 2, 96, D.r * 1.25, PAL.wood));
+        // Overhanging worktop with a lip, the way a real bar reads.
+        g.add(box(D.r * 2.2, 9, D.r * 1.5, 0x8f6a48, 96));
+        g.add(box(D.r * 2.05, 22, 6, 0xb08757, 62));
+        g.children.at(-1).position.z = -D.r * 0.66;
+        // A couple of cups waiting on the pass.
+        for (const off of [-30, 6, 40]) {
+          const cup = new THREE.Mesh(new THREE.CylinderGeometry(7, 6, 11, 8), col(0xf3ece0));
+          cup.position.set(off, 111, D.r * 0.35);
+          cup.castShadow = true;
+          g.add(cup);
+        }
         break;
-      case 'grinder':
-        g.add(box(34, 30, 30, PAL.dark));
-        g.add(cyl(13, 46, PAL.metal, 30));
-        g.add(new THREE.Mesh(new THREE.ConeGeometry(16, 26, 8), col(PAL.dark)))
-          .children.at(-1).position.y = 89;
+      }
+      case 'grinder': {
+        const H = 105;
+        g.add(box(30, 16, 30, 0x55585c, H));            // base
+        g.add(box(24, 34, 26, 0x8d949a, H + 16));       // body
+        g.add(box(20, 5, 20, 0x55585c, H + 48));        // collar
+        const hop = new THREE.Mesh(new THREE.ConeGeometry(14, 26, 8), col(0x46484b));
+        hop.position.y = H + 53 + 13;
+        hop.rotation.x = Math.PI;                       // wide end up, like a hopper
+        hop.castShadow = true;
+        g.add(hop);
+        const spout = box(9, 12, 9, 0x55585c, H + 14);
+        spout.position.z = 17;
+        g.add(spout);
         break;
-      case 'machine':
-        g.add(box(58, 52, 40, PAL.metal));
-        g.add(box(20, 16, 12, PAL.dark, 52));
+      }
+      case 'machine': {
+        const H = 105;                     // stands on the counter top
+        g.add(box(74, 44, 46, 0xd8dce0, H));
+        g.add(box(70, 12, 42, 0x8d949a, H + 44));       // top tray
+        g.add(box(74, 9, 48, 0x6f767c, H - 4));         // drip tray
+        // Two group heads with portafilters hanging off the front.
+        for (const off of [-20, 20]) {
+          const grp = box(16, 14, 10, 0x8d949a, H + 8);
+          grp.position.x = off; grp.position.z = 26;
+          g.add(grp);
+          const handle = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 20, 6), col(0x3a3a3c));
+          handle.rotation.z = Math.PI / 2;
+          handle.position.set(off, H + 10, 38);
+          g.add(handle);
+        }
+        // Steam wand.
+        const wand = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 26, 6), col(0xb9c2c9));
+        wand.rotation.x = 0.5;
+        wand.position.set(42, H + 18, 20);
+        g.add(wand);
         break;
+      }
       case 'speaker':
         g.add(box(24, 34, 20, PAL.dark, 190));
         break;
@@ -363,9 +432,62 @@ export class View3D {
         g.add(cyl(4, 120, PAL.metal));
         g.add(cyl(18, 20, PAL.warm, 120, 8));
         break;
-      case 'window':
-        g.add(box(14, 150, D.r * 2, PAL.wallGlass, 90));
+      case 'window': {
+        // Which wall is this in? The nearest edge decides the orientation, so
+        // a window always sits flush and faces out rather than floating.
+        const R = this.room;
+        const dLeft = t.x, dRight = R.w - t.x, dTop = t.y, dBot = R.h - t.y;
+        const min = Math.min(dLeft, dRight, dTop, dBot);
+        const vertical = (min === dLeft || min === dRight);
+
+        const W = D.r * 2.2, H = 150, SILL = 92;
+        const frame = 7;
+        const thick = 10;
+
+        // The pane. Unlit and unfogged so the painted street reads as
+        // daylight coming in, which is the entire job of a window.
+        //
+        // No recess box: the first version put a dark solid behind the glass
+        // to fake depth, and it simply occluded it. Every pane came out black.
+        if (this.outsideTex) {
+          // A slice of the street per window, so two windows in one wall do
+          // not show the identical view.
+          const slice = this.outsideTex.clone();
+          slice.needsUpdate = true;
+          slice.wrapS = slice.wrapT = THREE.RepeatWrapping;
+          slice.repeat.set(0.34, 0.86);
+          slice.offset.set(((parseInt(t.id.slice(1), 10) || 0) % 3) * 0.3, 0.08);
+
+          const pane = new THREE.Mesh(
+            new THREE.PlaneGeometry(W - frame * 2, H - frame * 2),
+            new THREE.MeshBasicMaterial({ map: slice, fog: false, toneMapped: false })
+          );
+          pane.position.y = SILL + H / 2;
+          // Face into the room, standing just proud of the wall.
+          if (vertical) {
+            pane.rotation.y = dLeft < dRight ? Math.PI / 2 : -Math.PI / 2;
+            pane.position.x = dLeft < dRight ? 10 : -10;
+          } else {
+            pane.rotation.y = dTop < dBot ? 0 : Math.PI;
+            pane.position.z = dTop < dBot ? 10 : -10;
+          }
+          g.add(pane);
+        }
+
+        // Frame: sill, head, two jambs, and a glazing bar down the middle.
+        const bar = (bw, bh, bd, by, bx = 0, bz = 0) => {
+          const m = box(vertical ? bd : bw, bh, vertical ? bw : bd, 0xe8e2d4, by);
+          m.position.x = vertical ? bz : bx;
+          m.position.z = vertical ? bx : bz;
+          g.add(m);
+        };
+        bar(W + 8, frame, thick + 4, SILL - frame);          // sill
+        bar(W + 8, frame, thick + 4, SILL + H);              // head
+        bar(frame, H, thick + 4, SILL, -W / 2 + frame / 2);  // left jamb
+        bar(frame, H, thick + 4, SILL, W / 2 - frame / 2);   // right jamb
+        bar(5, H, thick, SILL, 0);                           // glazing bar
         break;
+      }
       case 'diffuser':
         g.add(box(D.r * 2, 7, 36, 0xf4f7f2, WALL_H - 34));
         break;
@@ -393,20 +515,53 @@ export class View3D {
         g.add(box(D.r * 1.7, 95, 14, PAL.wallAcoustic, 0));
         g.children.at(-1).position.z = -D.r * 0.7;
         break;
-      case 'seat':
-        g.add(cyl(6, 72, PAL.metal));
-        g.add(cyl(D.r * 0.8, 6, PAL.wallWood, 72, 10));
+      case 'seat': {
+        g.add(cyl(D.r * 0.55, 4, 0x6f767c, 0, 12));      // foot
+        g.add(cyl(7, 68, 0x9aa2a8, 4, 8));               // column
+        g.add(cyl(D.r * 0.95, 7, 0xb5793f, 72, 14));     // top
+        g.add(cyl(D.r * 0.95, 2, 0x8f5c2c, 79, 14));     // edge banding
+        const cup = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 5.5, 10, 8), col(0xf3ece0));
+        cup.position.set(9, 86, -6);
+        cup.castShadow = true;
+        g.add(cup);
+        const saucer = cyl(11, 2, 0xe6ddd0, 81, 10);
+        saucer.position.set(9, 82, -6);
+        g.add(saucer);
         break;
+      }
+      case 'customer': {
+        const coats = [0x6d7f9c, 0x8a6a52, 0x7d8f6b, 0x9c6b7a, 0x5f6470];
+        const coat = coats[(parseInt(t.id.slice(1), 10) || 0) % coats.length];
+        g.add(box(24, 60, 16, PAL.dark));                 // legs
+        g.add(box(30, 50, 20, coat, 60));                 // body
+        g.add(box(21, 21, 19, PAL.skin, 110));            // head
+        g.add(box(23, 8, 21, 0x4a3327, 126));             // hair
+        break;
+      }
+
       case 'door':
         g.add(box(D.r * 1.8, 205, 8, PAL.wood, 0));
         g.add(box(D.r * 1.4, 120, 4, PAL.wallGlass, 70));
         break;
 
       case 'chair': {
-        g.add(cyl(4, 42, PAL.metal, 0, 6).clone());
-        g.add(box(34, 5, 34, PAL.wood, 42));
-        g.add(box(34, 34, 5, PAL.wood, 47));
-        g.children.at(-1).position.z = -14;
+        for (const [lx, lz] of [[-13, -13], [13, -13], [-13, 13], [13, 13]]) {
+          const leg = box(4, 42, 4, 0x7a5636, 0);
+          leg.position.x = lx; leg.position.z = lz;
+          g.add(leg);
+        }
+        g.add(box(34, 6, 34, 0xa9743f, 42));
+        // Back: two uprights and two slats, so it is a chair and not a slab.
+        for (const ux of [-14, 14]) {
+          const up = box(4, 40, 4, 0x7a5636, 48);
+          up.position.x = ux; up.position.z = -15;
+          g.add(up);
+        }
+        for (const sy of [62, 76]) {
+          const slat = box(30, 7, 4, 0xa9743f, sy);
+          slat.position.z = -15;
+          g.add(slat);
+        }
         break;
       }
       case 'shelf': {

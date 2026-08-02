@@ -19,6 +19,7 @@ import { buildHeat } from './plan.js';
 import { View3D } from './view3d.js';
 import { Walker } from './walker.js';
 import { Service, STEP_LABEL, MODEL as SVC } from './service.js';
+import * as sound from './sound.js';
 import { evaluate, bestMove, applyMove } from './solver.js';
 import { SOURCES } from './fragments.js';
 
@@ -44,8 +45,8 @@ const READABLE = {
 
 const PREFS_KEY = 'room-to-breathe.prefs';
 const prefs = (() => {
-  try { return { style: 'pixel', motion: 'on', text: 'normal', ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }; }
-  catch { return { style: 'pixel', motion: 'on', text: 'normal' }; }
+  try { return { style: 'pixel', motion: 'on', text: 'normal', sound: false, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }; }
+  catch { return { style: 'pixel', motion: 'on', text: 'normal', sound: false }; }
 })();
 function savePrefs () {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* fine */ }
@@ -148,6 +149,14 @@ window.room = { studio, ui, view, walker, prefs, progress, COMMISSIONS };
 document.documentElement.style.setProperty('--bg', palette().bg);
 document.body.style.background = palette().bg;
 document.documentElement.classList.toggle('text-large', prefs.text === 'large');
+if (prefs.sound) {
+  // Only ever after a gesture; browsers block audio before one anyway.
+  window.addEventListener('pointerdown', function once () {
+    sound.setOn(true);
+    $('soundBtn').textContent = 'sound on';
+    window.removeEventListener('pointerdown', once);
+  }, { once: true });
+}
 
 /* ------------------------------------------------------------------ */
 /* Overlay routing                                                     */
@@ -322,6 +331,13 @@ $('debriefBoard').onclick = () => { renderBoard(); show('board'); };
 $('endingBoard').onclick = () => { renderBoard(); show('board'); };
 $('exitBtn').onclick = () => { setInGame(false); renderBoard(); show('board'); };
 
+$('soundBtn').onclick = () => {
+  const isOn = sound.toggle();
+  prefs.sound = isOn;
+  savePrefs();
+  $('soundBtn').textContent = isOn ? 'sound on' : 'sound off';
+};
+
 /* About -------------------------------------------------------------- */
 
 function renderAbout () {
@@ -389,6 +405,13 @@ function setMode (m) {
   if (m === 'service') {
     service = new Service(studio.room);
     window.room.service = service;
+    // Customers are added to room.things by the Service, which happens after
+    // the scene was built — so they existed in the simulation and were
+    // invisible in the world. Push them into the scene and refresh the field
+    // so their noise counts from the first frame.
+    studio.recompute();
+    view.sync(studio.room);
+    view.refreshLights();
   }
   if (m === 'free' || m === 'service') {
     // Start at the door facing the counter, the way anyone entering would.
@@ -516,7 +539,22 @@ $('hintDo').onclick = () => {
 
 function tickService (dt) {
   if (!service) return;
+  const wasFlow = service.flow;
   const done = service.update(dt, walker.x, walker.y);
+
+  if (done) {
+    if (done.completed) sound.sfx.serve(service.flow);
+    else if (done.step === 'grind') sound.sfx.grind();
+    else if (done.step === 'pull') sound.sfx.pull();
+    else if (done.step === 'steam') sound.sfx.steam();
+    if (service.flow > wasFlow) sound.sfx.flowUp(service.flow);
+    // Customers leaving genuinely changes the field, so recompute it.
+    studio.recompute();
+    view.sync(studio.room);
+  }
+
+  // The room tone follows how loud it is where you are standing.
+  sound.setLoad(studio.grid.load[studio.grid.at(walker.x, walker.y)] ?? 0);
 
   // Orders, with their steps ticked off as they are worked.
   $('svcOrders').innerHTML = service.orders.slice(0, 6).map(o =>
@@ -552,7 +590,10 @@ function tickService (dt) {
 }
 
 function showServiceReport () {
+  sound.sfx.done();
   const r = service.report();
+  service.clearCustomers();
+  studio.recompute();
   service = null;
   $('svcGrid').innerHTML = [
     ['served', r.served, ''],
