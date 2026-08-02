@@ -182,6 +182,51 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 
+/**
+ * A little speech bubble above somebody's head, saying what they ordered.
+ *
+ * Drawn to a canvas and hung as a sprite, so it always faces you however you
+ * walk round the room. Without it the mode asked you to remember which of
+ * eight identical-looking people wanted the flat white, which is a memory
+ * test rather than a café — and a memory test is the last thing this game
+ * should be putting in front of anybody.
+ */
+const BUBBLE_CACHE = new Map();
+function bubbleTexture (text, ready) {
+  const key = text + (ready ? '!' : '');
+  if (BUBBLE_CACHE.has(key)) return BUBBLE_CACHE.get(key);
+
+  const W = 128, H = 64;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+
+  // Cream bubble, heavy dark outline, little tail. Same treatment as the
+  // speech bubble in the interface, so the two read as one language.
+  const body = ready ? '#ffe3ac' : '#f6f0e2';
+  g.fillStyle = '#2f2119';
+  g.fillRect(2, 2, W - 4, H - 22);
+  g.beginPath(); g.moveTo(W / 2 - 9, H - 20); g.lineTo(W / 2 + 9, H - 20);
+  g.lineTo(W / 2, H - 6); g.closePath(); g.fill();
+  g.fillStyle = body;
+  g.fillRect(5, 5, W - 10, H - 28);
+  g.beginPath(); g.moveTo(W / 2 - 6, H - 23); g.lineTo(W / 2 + 6, H - 23);
+  g.lineTo(W / 2, H - 12); g.closePath(); g.fill();
+
+  g.fillStyle = '#2f2119';
+  g.font = '700 17px ui-monospace, Menlo, monospace';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, W / 2, (H - 22) / 2 + 3);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.NearestFilter;
+  tex.magFilter = THREE.NearestFilter;
+  BUBBLE_CACHE.set(key, tex);
+  return tex;
+}
+
 /** One takeaway cup, used both on the counter and in your hands. */
 function cupMesh () {
   const g = new THREE.Group();
@@ -868,6 +913,55 @@ export class View3D {
     this.visitorRing.material.opacity = 0.35 + t * 0.45;
   }
 
+  /**
+   * Hang an order over each waiting customer's head.
+   *
+   * Called from the service loop with the live orders, so a bubble appears
+   * when somebody starts waiting, turns warm when their drink is on your
+   * tray, and vanishes when you hand it over.
+   */
+  setOrderBubbles (orders) {
+    if (!this.bubbles) this.bubbles = new Map();
+    const live = new Set();
+
+    for (const o of orders ?? []) {
+      const c = o.customer;
+      if (!c || !c.placed) continue;
+      live.add(o.id);
+      const label = o.name === 'flat white' ? 'FLAT WHITE' : 'ESPRESSO';
+      let sp = this.bubbles.get(o.id);
+      if (!sp) {
+        sp = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: bubbleTexture(label, false), depthTest: false, transparent: true
+        }));
+        sp.renderOrder = 10;
+        this.scene.add(sp);
+        this.bubbles.set(o.id, sp);
+        sp.userData.ready = false;
+      }
+      if (sp.userData.ready !== o.ready) {
+        sp.material.map = bubbleTexture(label, o.ready);
+        sp.material.needsUpdate = true;
+        sp.userData.ready = o.ready;
+      }
+      // Above the head, with a small idle bob so the room feels alive.
+      const bob = Math.sin(performance.now() / 700 + (o.n ?? 0)) * 3;
+      sp.position.set(c.x, 202 + bob, c.y);
+      // Constant size on screen. A sprite in world units is a metre wide in
+      // your face when you walk up to somebody; scaling with distance keeps
+      // every order equally readable wherever it is in the room.
+      const d = this.camera.position.distanceTo(sp.position);
+      const k = Math.max(120, Math.min(900, d)) * 0.088;
+      sp.scale.set(k, k / 2, 1);
+    }
+
+    for (const [id, sp] of this.bubbles) {
+      if (live.has(id)) continue;
+      this.scene.remove(sp);
+      this.bubbles.delete(id);
+    }
+  }
+
   /** Cheap per-frame sync so dragging in plan view moves the 3D object too. */
   sync (room) {
     for (const t of room.things) {
@@ -980,26 +1074,34 @@ export class View3D {
    * yours until you give them to somebody.
    */
   setCarry (n) {
+    // build() empties the scene, and the camera — which the cups hang off —
+    // goes with it. Put it back rather than silently rendering nothing.
+    if (this.camera.parent !== this.scene) this.scene.add(this.camera);
     if (!this.carry) {
       this.carry = new THREE.Group();
       // Low and slightly forward — held at chest height, in shot but not in
       // the way of the room.
-      this.carry.position.set(0, -26, -46);
+      this.carry.position.set(0, -30, -62);
       this.camera.add(this.carry);
-      this.scene.add(this.camera);
       this.carryCups = [];
       for (let i = 0; i < 4; i++) {
         const cup = new THREE.Group();
         cup.add(cupMesh());
-        cup.position.set((i % 2 ? 1 : -1) * 9, (i > 1 ? 9 : 0), (i > 1 ? -8 : 0));
+        cup.position.set((i % 2 ? 1 : -1) * 8, (i > 1 ? 1 : 0), (i > 1 ? -9 : 0));
+        cup.scale.setScalar(0.78);
         cup.visible = false;
         this.carry.add(cup);
         this.carryCups.push(cup);
       }
-      const tray = new THREE.Mesh(new THREE.BoxGeometry(34, 2.5, 26), mat(0x8a5a34));
-      tray.position.y = -3;
+      const tray = new THREE.Mesh(new THREE.BoxGeometry(30, 2.5, 24), mat(0x8a5a34));
+      tray.position.y = -2;
       this.carry.add(tray);
+      const lip = new THREE.Mesh(new THREE.BoxGeometry(33, 3.5, 27), mat(0x6f4a2c));
+      lip.position.y = -3.6;
+      this.carry.add(lip);
       this.carryTray = tray;
+      // Tipped toward the camera so the cups read as cups, not as discs.
+      this.carry.rotation.x = 0.46;
     }
     this.carry.visible = n > 0;
     for (let i = 0; i < this.carryCups.length; i++) {
@@ -1007,7 +1109,7 @@ export class View3D {
     }
     // A gentle bob so it does not look welded to the screen.
     this.carry.rotation.z = Math.sin(performance.now() / 620) * 0.035;
-    this.carry.position.y = -26 + Math.sin(performance.now() / 480) * 0.9;
+    this.carry.position.y = -30 + Math.sin(performance.now() / 480) * 0.8;
   }
 
   /**

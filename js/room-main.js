@@ -22,6 +22,7 @@ import { Service, STEP_LABEL, MODEL as SVC } from './service.js';
 import * as sound from './sound.js';
 import { evaluate, bestMove, applyMove } from './solver.js';
 import { SOURCES } from './fragments.js';
+import * as overload from './overload.js';
 
 const $ = id => document.getElementById(id);
 
@@ -50,8 +51,8 @@ const LAYER_LABEL = {
   escape: 'retreat', exposure: 'wayfinding'
 };
 
-const OVERLAYS = ['title', 'opening', 'board', 'brief', 'debrief', 'ending',
-                  'svcDone', 'help', 'about', 'settings'];
+const OVERLAYS = ['title', 'warn', 'opening', 'board', 'brief', 'debrief',
+                  'ending', 'svcDone', 'help', 'about', 'settings'];
 
 const READABLE = {
   sound: 'noise', light: 'brightness', flicker: 'flicker', glare: 'glare',
@@ -247,9 +248,12 @@ $('boardBack').onclick = () => show('title');
  * the exact path the simulation produced, and stops where it stopped.
  */
 let opening = false;
+let lastKnock = -1;
 
 function startOpening () {
   opening = true;
+  lastKnock = -1;
+  overload.reset();
   commission = COMMISSIONS[0];
   studio.load(commission);
   closeOverlays();
@@ -276,11 +280,25 @@ function endOpening () {
     ['interruptions', String(r?.events?.length ?? 0)],
     ['asked to cope', 'never — you move the furniture instead']
   ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+  overload.reset();
   setInGame(false);
   show('opening');
 }
 
-$('openingBtn').onclick = startOpening;
+// The intensity of the felt overload, remembered between sessions and
+// pinned to gentle if the system has asked for less motion.
+prefs.overload = prefs.overload ?? overload.respectSystem();
+overload.attach($('app') ?? document.getElementById('app'), $('grade'));
+overload.setLevel(prefs.overload);
+
+$('openingBtn').onclick = () => show('warn');
+$('warnBack').onclick = () => show('title');
+$('warnGo').onclick = () => {
+  prefs.overload = 'full'; savePrefs(); overload.setLevel('full'); startOpening();
+};
+$('warnSoft').onclick = () => {
+  prefs.overload = 'gentle'; savePrefs(); overload.setLevel('gentle'); startOpening();
+};
 $('openingBack').onclick = () => { opening = false; show('title'); };
 $('openingFix').onclick = () => {
   opening = false;
@@ -451,6 +469,15 @@ $('debriefBoard').onclick = () => { renderBoard(); show('board'); };
 $('endingBoard').onclick = () => { renderBoard(); show('board'); };
 $('exitBtn').onclick = () => { setInGame(false); renderBoard(); show('board'); };
 
+// The verdict is a one-line bar; the reasoning opens on request so it is
+// never sitting on top of the part of the room it is talking about.
+$('verdictToggle').onclick = () => {
+  const v = $('verdict');
+  const open = v.classList.toggle('open');
+  $('verdictToggle').setAttribute('aria-expanded', String(open));
+  $('verdictToggle').textContent = open ? 'close' : 'why?';
+};
+
 $('soundBtn').onclick = () => {
   const isOn = sound.toggle();
   prefs.sound = isOn;
@@ -471,6 +498,8 @@ function renderAbout () {
 const SETTING_GROUPS = [
   ['styleChoices', v => { prefs.style = v; view.setStyle(v); }, () => prefs.style],
   ['motionChoices', v => { prefs.motion = v; }, () => prefs.motion],
+  ['overloadChoices', v => { prefs.overload = v; overload.setLevel(v); },
+   () => prefs.overload],
   ['textChoices', v => {
     prefs.text = v;
     document.documentElement.classList.toggle('text-large', v === 'large');
@@ -499,6 +528,7 @@ function rebuild3d () {
 }
 
 function setMode (m) {
+  if (m !== 'walk') { overload.reset(); lastKnock = -1; }
   mode = m;
   $('stage').hidden = m !== 'plan';
   gl.hidden = m === 'plan';
@@ -607,7 +637,11 @@ window.addEventListener('keydown', e => {
   if (mode !== 'free' && mode !== 'service') return;
   if (e.code === 'KeyE' && mode === 'service' && service) {
     e.preventDefault();
-    service.begin(walker.x, walker.y);
+    // Work first; if there is nothing to do here, talk to whoever is here.
+    if (!service.begin(walker.x, walker.y)) {
+      const said = service.talk(walker.x, walker.y);
+      if (said) showSay(said.text);
+    }
     return;
   }
   if (!WALK_KEYS.has(e.code)) return;
@@ -718,10 +752,18 @@ function tickService (dt) {
     setText('svcActionText', STEP_LABEL[w.step]);
   } else {
     const near = service.atHand(walker.x, walker.y);
-    $('svcAction').hidden = !near;
     if (near) {
+      $('svcAction').hidden = false;
       setH('svcRing', '0%');
       setText('svcActionText', `${STEP_LABEL[near.step]} — press E`);
+    } else {
+      // Nothing to do here, but there might be somebody to talk to.
+      const who = service.talkTarget(walker.x, walker.y);
+      $('svcAction').hidden = !who;
+      if (who) {
+        setH('svcRing', '0%');
+        setText('svcActionText', 'Say hello — press E');
+      }
     }
   }
 
@@ -823,12 +865,14 @@ function frame (now) {
         walker.update(dt, studio.room, studio.grid);
         view.setFreeCamera(walker.pos, walker.yaw);
         view.setCarry(service ? service.tray.length : 0);
+        view.setOrderBubbles(service ? service.orders : []);
         tickService(dt);
       } else if (mode === 'free') {
         view.setCutaway(false);
         view.setFloorSurvey(false);
         view.placeVisitor(null);
         view.setCarry(0);
+        view.setOrderBubbles([]);
         walker.update(dt, studio.room, studio.grid);
         view.setFreeCamera(walker.pos, walker.yaw);
 
@@ -855,9 +899,17 @@ function frame (now) {
         setW('walkFill', `${Math.round(walkT * 100)}%`);
         $('walkbar').classList.toggle('bad', !studio.result?.ok);
         const idx = Math.floor(walkT * path.length);
-        updateMeters(path[Math.min(path.length - 1, idx)]);
+        const step = path[Math.min(path.length - 1, idx)];
+        updateMeters(step);
+        // The picture and the sound follow what the room is costing her.
+        if (step) {
+          overload.apply(dt, step.load ?? 0,
+                         Math.max(0, (step.reserve ?? 0) / studio.person.reserve));
+          sound.setLoad(step.load ?? 0);
+        }
         const ev = (studio.result?.events ?? []).filter(e => e.index <= idx).slice(-1)[0];
         const fresh = ev && idx - ev.index < 26;
+        if (fresh && lastKnock !== ev.index) { lastKnock = ev.index; overload.knock(); }
         $('interrupt3d').hidden = !fresh;
         if (fresh) {
           setText('interrupt3dText', ev.text);

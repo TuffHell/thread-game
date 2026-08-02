@@ -66,6 +66,7 @@
   <section class="verdict" id="verdict" hidden>
     <p class="verdict-head" id="verdictHead"></p>
     <p class="verdict-detail" id="verdictDetail"></p>
+    <button class="verdict-toggle" id="verdictToggle" aria-expanded="false">why?</button>
   </section>
 
   <button class="btn signoff" id="signoffBtn" hidden>Sign it off</button>
@@ -142,6 +143,30 @@
         the test suite and has to win it inside the budget, so no room can ship
         unsolvable — and the same solver is the in-game hint.</li>
       </ul>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ -->
+  <!-- Before the cold open: what is about to happen, and how loud   -->
+  <!-- ------------------------------------------------------------ -->
+  <section id="warn" class="overlay" hidden>
+    <div class="calib-inner narrow">
+      <p class="eyebrow">before you go in</p>
+      <h2>You are about to walk it as Mara.</h2>
+      <p class="brief-text">For about a minute the picture and the sound will
+      follow what the room is costing her — it tightens, it saturates, it hums,
+      and being interrupted lands as a knock. None of it is scripted. Every
+      value is read off the same simulation that decides whether she gets to
+      the counter.</p>
+      <p class="brief-text quiet">If that is not something you want today, the
+      gentle version keeps the colour and drops the movement and the tone. You
+      can change it any time in settings, and nothing in the rest of the game
+      does this.</p>
+      <div class="calib-actions">
+        <button class="btn btn-big" id="warnGo">Walk it</button>
+        <button class="btn btn-quiet" id="warnSoft">Walk it, gently</button>
+        <button class="btn btn-quiet" id="warnBack">Not now</button>
+      </div>
     </div>
   </section>
 
@@ -347,6 +372,14 @@
         <div class="choices" role="radiogroup" id="motionChoices">
           <button class="choice" data-v="on"><b>Walking loop</b><span>The visitor walks the room on repeat in Look.</span></button>
           <button class="choice" data-v="off"><b>Still</b><span>Nothing moves unless you press Walk it.</span></button>
+        </div>
+      </fieldset>
+      <fieldset class="calib-group">
+        <legend>How hard the replay hits</legend>
+        <div class="choices" role="radiogroup" id="overloadChoices">
+          <button class="choice" data-v="full"><b>Full</b><span>The picture and the sound follow the load: it tightens, it hums, interruptions land as a knock.</span></button>
+          <button class="choice" data-v="gentle"><b>Gentle</b><span>Keeps the colour and the closing vignette. No movement, no tone.</span></button>
+          <button class="choice" data-v="off"><b>Off</b><span>The replay looks the same all the way through. The numbers still say what they say.</span></button>
         </div>
       </fieldset>
       <fieldset class="calib-group">

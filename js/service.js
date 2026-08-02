@@ -119,6 +119,43 @@ const REGULARS = [
   'I sat down without thinking about it. That\u2019s new.'
 ];
 
+/**
+ * What people say while they are still waiting.
+ *
+ * Optional, free, and costs you nothing — no timer, no flow penalty, no
+ * consequence for ignoring it entirely. That is deliberate: a game about not
+ * being forced into interaction should not put a meter on being sociable.
+ * Talk to them or do not.
+ *
+ * Each person has three or four beats and then repeats their last one, the
+ * way somebody waiting for a coffee actually does.
+ */
+const CHATS = [
+  ['Morning. No rush, honestly.',
+   'It is nicer in here than it was. Did something change?',
+   'Oh, you did? Huh. I could not have told you what it was.',
+   'Take your time.'],
+  ['Is the corner one free? The one with the high back.',
+   'It is the only spot in town I can sit and read in.',
+   'I know that is a lot to put on a chair.'],
+  ['Just the coffee, thanks. I have got somewhere to be.',
+   'Well. Somewhere I said I would be.',
+   'Still here, as you can see.'],
+  ['Do not worry about me, I am people-watching.',
+   'That one has been on the same page for twenty minutes.',
+   'Solidarity, honestly.'],
+  ['You have got a system going. I like watching a system.',
+   'Batch it. Always batch it.',
+   'See, that is what I would do.'],
+  ['I came in last Tuesday and had to leave again.',
+   'Nothing happened. It was just a lot, all at once.',
+   'Today it is fine. That is the whole difference.'],
+  ['Cold out. Warm in here.',
+   'I will be honest, that is most of why I came.'],
+  ['No hurry at all. I mean that.',
+   'People say it and do not mean it. I mean it.']
+];
+
 function lineFor (order) {
   // Roughly one in three says something about the room rather than the
   // coffee, and never in so many words.
@@ -218,6 +255,40 @@ export class Service {
       if (t.placed && t.kind === 'seat') out.push({ x: t.x + 70, y: t.y + 30 });
     }
     return out.length ? out : [{ x: this.room.w / 2, y: this.room.h / 2 }];
+  }
+
+  /**
+   * Say something to whoever you are standing in front of.
+   *
+   * Nothing mechanical happens. It does not advance the order, does not
+   * touch flow, does not cost time. Returns their next line, or null if
+   * there is nobody close enough.
+   */
+  /** Is anybody close enough to speak to? */
+  talkTarget (x, y) {
+    let best = null, bestD = MODEL.handReach * 1.4;
+    for (const o of this.orders) {
+      const c = o.customer;
+      if (!c || !c.placed) continue;
+      const d = Math.hypot(x - c.x, y - c.y);
+      if (d < bestD) { bestD = d; best = o; }
+    }
+    return best;
+  }
+
+  talk (x, y) {
+    let best = null, bestD = MODEL.handReach * 1.4;
+    for (const o of this.orders) {
+      const c = o.customer;
+      if (!c || !c.placed) continue;
+      const d = Math.hypot(x - c.x, y - c.y);
+      if (d < bestD) { bestD = d; best = o; }
+    }
+    if (!best) return null;
+    const script = CHATS[(best.n - 1) % CHATS.length];
+    const i = Math.min(script.length - 1, best.chat ?? 0);
+    best.chat = i + 1;
+    return { text: script[i], order: best, more: i < script.length - 1 };
   }
 
   /** Where the station for a step physically is, in this room. */

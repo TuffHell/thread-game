@@ -1146,3 +1146,92 @@ body.ingame .btn-quiet:hover {
 @media (max-width: 860px) {
   .meters { top: 132px; }
 }
+
+/* ---------------------------------------------------------------- */
+/* The header is a pass-through, except where it is not              */
+/* ---------------------------------------------------------------- */
+
+/*
+ * .room-top is pointer-events: none so you can drag furniture underneath
+ * it. Only .ptabs ever turned that back on, which meant the sound and board
+ * buttons in the top right looked like buttons, hovered like buttons, and
+ * did nothing at all — every click went straight through to the canvas.
+ */
+.room-top button,
+.room-top .hud-right,
+.hud-right button {
+  pointer-events: auto;
+}
+
+/* ---------------------------------------------------------------- */
+/* The verdict, out of the way of the room                           */
+/* ---------------------------------------------------------------- */
+
+/*
+ * It was a four-line panel parked across the middle of the plan, over the
+ * exact part of the room the sentence was telling you to look at. It is a
+ * one-line bar now, tucked to the bottom edge; the reasoning is a click away
+ * for when you want it and invisible when you are dragging furniture.
+ */
+.verdict {
+  bottom: 12px;
+  width: min(620px, calc(100vw - 32px));
+  padding: 9px 46px 9px 15px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  pointer-events: auto;
+}
+.verdict-head {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.3;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* One line unless you ask for more. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.verdict-detail {
+  display: none;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.verdict.open {
+  flex-direction: column;
+  align-items: stretch;
+  padding-bottom: 13px;
+}
+.verdict.open .verdict-head { white-space: normal; overflow: visible; }
+.verdict.open .verdict-detail { display: block; margin: 6px 0 0; }
+
+.verdict-toggle {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font: inherit;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 3px 9px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.verdict-toggle:hover { color: var(--ink); border-color: var(--ink-soft); }
+
+@media (max-width: 860px) {
+  .verdict { bottom: 148px; }
+}
+
+/* The overload effect transforms #app; give it something to transform in
+   without the page itself moving or scrollbars appearing. */
+#app { will-change: transform, filter; }
+html, body { overflow: hidden; }
+
+.calib-inner.narrow { max-width: 54ch; }
+.brief-text.quiet { color: var(--ink-soft); font-size: 0.88rem; }
