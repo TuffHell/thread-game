@@ -18,7 +18,8 @@ import { palette, settings } from './config.js';
 import { buildHeat } from './plan.js';
 import { View3D } from './view3d.js';
 import { Walker } from './walker.js';
-import { Service, STEP_LABEL, MODEL as SVC } from './service.js';
+import { shiftFor, STEP_LABEL } from './shifts/index.js';
+import { MODEL as SVC } from './service.js';
 import * as sound from './sound.js';
 import { evaluate, bestMove, applyMove } from './solver.js';
 import { SOURCES } from './fragments.js';
@@ -85,6 +86,7 @@ let orbit = -Math.PI / 4;
 let briefTarget = null;
 const walker = new Walker();
 let service = null;
+let activeShift = null;
 
 /* ------------------------------------------------------------------ */
 /* Interface plumbing                                                  */
@@ -538,7 +540,9 @@ function setMode (m) {
   $('svcAction').hidden = true;
   $('svcTray').hidden = m !== 'service';
   $('svcSay').hidden = true;
-  $('viewService').hidden = !(commission && commission.room === 'cafe' && progress.done[commission.id]);
+  // Every room has a shift of its own, unlocked by signing that room off.
+  $('viewService').hidden = !(commission && shiftFor(commission.room) &&
+                              progress.done[commission.id]);
   $('hintBtn').hidden = m !== 'plan';
   $('hintCard').hidden = true;
   $('walkbar').hidden = m !== 'walk';
@@ -562,7 +566,12 @@ function setMode (m) {
     studio.recompute();
   }
   if (m === 'service') {
-    service = new Service(studio.room);
+    const Shift = shiftFor(studio.commission?.room ?? commission.room);
+    if (!Shift) { mode = 'plan'; return setMode('plan'); }
+    service = new Shift(studio.room);
+    activeShift = Shift;
+    // Each room's shift argues something different, so say which one this is.
+    showSay(`${Shift.title} — ${Shift.keyHint}`);
     window.room.service = service;
     // Customers are added to room.things by the Service, which happens after
     // the scene was built — so they existed in the simulation and were
@@ -700,22 +709,35 @@ $('hintDo').onclick = () => {
 
 /* The Quiet Service --------------------------------------------------- */
 
+/**
+ * One tick of whichever shift is running.
+ *
+ * Deliberately knows nothing about which one. Each shift reports what it
+ * wants shown through hud(), so adding a fifth room means writing a fifth
+ * shift and not touching this function at all.
+ */
 function tickService (dt) {
   if (!service) return;
-  const wasFlow = service.flow;
+  const wasFlow = service.flow ?? 0;
   const done = service.update(dt, walker.x, walker.y);
 
   if (done) {
-    if (done.completed) sound.sfx.serve(service.flow);
+    // Sound, per action, where the shift has one that fits.
+    if (done.completed && done.step === 'serve') sound.sfx.serve(service.flow ?? 0.5);
     else if (done.step === 'grind') sound.sfx.grind();
     else if (done.step === 'pull') sound.sfx.pull();
     else if (done.step === 'steam') sound.sfx.steam();
-    else if (done.step === 'clear') sound.sfx.serve(service.flow * 0.4);
-    if (service.flow > wasFlow) sound.sfx.flowUp(service.flow);
-    // Somebody says something when you hand their coffee across.
+    else if (done.step === 'clear') sound.sfx.serve((service.flow ?? 0.5) * 0.4);
+    else if (done.step === 'tannoy') sound.sfx.grind();
+    else if (done.step === 'board' || done.step === 'person') sound.sfx.pull();
+    else if (done.step) sound.sfx.steam();
+
+    // An interruption you caused reads as one: a knock, not a chime.
+    if (done.broke) { sound.sfx.grind(); overload.knock(); }
+    if ((service.flow ?? 0) > wasFlow) sound.sfx.flowUp(service.flow);
     if (done.said) showSay(done.said);
-    // People leaving and cups appearing both change the field, so recompute.
-    if (done.completed || done.cleared) {
+    // Anything that adds or removes a body or an object changes the field.
+    if (done.completed || done.cleared || done.handled) {
       studio.recompute();
       view.sync(studio.room);
     }
@@ -724,41 +746,39 @@ function tickService (dt) {
   // The room tone follows how loud it is where you are standing.
   sound.setLoad(studio.grid.load[studio.grid.at(walker.x, walker.y)] ?? 0);
 
-  // Orders, with their steps ticked off as they are worked.
-  setHTML('svcOrders', service.orders.slice(0, 6).map(o =>
-    `<div class="svc-order${o.ready ? ' ready' : ''}"><b>${o.name}</b><span class="steps">` +
-    o.needs.map((n, i) => `<i class="${i < o.done ? 'done' : ''}">•</i>`).join('') +
-    '</span></div>').join('') ||
-    (service.messes.length
-      ? `<div class="svc-order"><b>clear ${service.messes.length} cup${service.messes.length === 1 ? '' : 's'}</b></div>`
-      : '<div class="svc-order"><b>all served</b></div>'));
+  const h = service.hud();
 
-  // Your hands. Four slots, filled as drinks come off the bar.
-  setHTML('svcTraySlots', Array.from({ length: SVC.trayCapacity }, (_, i) =>
-    `<div class="carry-slot${i < service.tray.length ? ' full' : ''}">${
-      i < service.tray.length ? '\u2615' : ''}</div>`).join(''));
-  $('svcTray').hidden = false;
+  setHTML('svcOrders', h.rows.length
+    ? h.rows.map(r =>
+        `<div class="svc-order${r.ready ? ' ready' : ''}${r.warn ? ' warn' : ''}">` +
+        `<b>${r.label}</b><span class="steps">${r.marks ?? ''}</span></div>`).join('')
+    : `<div class="svc-order"><b>${h.empty}</b></div>`);
 
-  setW('svcFlow', `${Math.round(service.flow * 100)}%`);
-  setText('svcFlowNote', service.flow > 0.6
-    ? 'deep in it — actions are quick'
-    : (service.flow > 0.2 ? 'building' : 'do the same thing twice to build it'));
+  setText('svcFlowLabel', h.meter.label);
+  setW('svcFlow', `${Math.round(Math.max(0, Math.min(1, h.meter.value)) * 100)}%`);
+  setText('svcFlowNote', h.note);
 
-  // What is happening under your hands.
+  // Only the café puts things in your hands.
+  $('svcTray').hidden = h.tray == null;
+  if (h.tray != null) {
+    setHTML('svcTraySlots', Array.from({ length: SVC.trayCapacity }, (_, i) =>
+      `<div class="carry-slot${i < h.tray ? ' full' : ''}">${
+        i < h.tray ? '\u2615' : ''}</div>`).join(''));
+  }
+
   const w = service.working;
   if (w) {
     $('svcAction').hidden = false;
     setH('svcRing', `${Math.round(Math.min(100, w.t / w.need * 100))}%`);
-    setText('svcActionText', STEP_LABEL[w.step]);
+    setText('svcActionText', w.label ?? STEP_LABEL[w.step] ?? 'working');
   } else {
     const near = service.atHand(walker.x, walker.y);
     if (near) {
       $('svcAction').hidden = false;
       setH('svcRing', '0%');
-      setText('svcActionText', `${STEP_LABEL[near.step]} — press E`);
+      setText('svcActionText', `${near.label ?? STEP_LABEL[near.step] ?? 'work'} — press E`);
     } else {
-      // Nothing to do here, but there might be somebody to talk to.
-      const who = service.talkTarget(walker.x, walker.y);
+      const who = service.talkTarget?.(walker.x, walker.y);
       $('svcAction').hidden = !who;
       if (who) {
         setH('svcRing', '0%');
@@ -767,12 +787,7 @@ function tickService (dt) {
     }
   }
 
-  setText('freeRead', service.finished
-    ? ''
-    : (service.served >= service.target
-        ? `${service.messes.length} cup${service.messes.length === 1 ? '' : 's'} still out`
-        : `${service.served} of ${service.target} served` +
-          (service.messes.length ? ` \u00b7 ${service.messes.length} to clear` : '')));
+  setText('freeRead', service.finished ? '' : h.count);
 
   if (service.finished) showServiceReport();
 }
@@ -797,26 +812,14 @@ function showServiceReport () {
   service.clearCustomers();
   studio.recompute();
   service = null;
+  window.room.service = null;
   $('svcTray').hidden = true;
   $('svcSay').hidden = true;
-  $('svcGrid').innerHTML = [
-    ['served', r.served, ''],
-    ['cups cleared', r.cleared, ''],
-    ['time', r.seconds, 'sec'],
-    ['per action', r.perAction, 'sec'],
-    ['task switches', r.switches, '']
-  ].map(([k, v, u]) =>
+  $('svcDoneTitle').textContent = r.headline;
+  $('svcGrid').innerHTML = r.grid.map(([k, v, u]) =>
     `<div><dt>${k}</dt><dd>${v}${u ? `<small>${u}</small>` : ''}</dd></div>`).join('');
   $('svcNote').textContent = r.note;
-  $('svcEvidence').textContent =
-    'Measured, not asserted, and rerun every time the code changes: a ' +
-    'simulated barista who fills the tray, walks it out and collects the ' +
-    'cups in runs finishes this morning in 66 seconds. One who makes each ' +
-    'coffee and delivers it before starting the next takes 89, and spends ' +
-    'the shift at a tenth of the flow. Exiling the grinder to a far corner ' +
-    'to protect Mara costs the batching barista eleven per cent. The layout ' +
-    'that is kinder to her is nearly free to work in — if you are allowed ' +
-    'to stay on one thing.';
+  $('svcEvidence').textContent = r.evidence;
   setInGame(false);
   show('svcDone');
 }
@@ -864,8 +867,11 @@ function frame (now) {
         view.placeVisitor(null);
         walker.update(dt, studio.room, studio.grid);
         view.setFreeCamera(walker.pos, walker.yaw);
-        view.setCarry(service ? service.tray.length : 0);
-        view.setOrderBubbles(service ? service.orders : []);
+        // Only the café puts drinks in your hands or orders over heads; the
+        // other three shifts have neither, and asking them for a tray they
+        // do not have was killing the frame loop.
+        view.setCarry(service?.tray?.length ?? 0);
+        view.setOrderBubbles(service?.orders ?? []);
         tickService(dt);
       } else if (mode === 'free') {
         view.setCutaway(false);

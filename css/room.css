@@ -1235,3 +1235,7 @@ html, body { overflow: hidden; }
 
 .calib-inner.narrow { max-width: 54ch; }
 .brief-text.quiet { color: var(--ink-soft); font-size: 0.88rem; }
+
+/* A job in the panel that is about to cost somebody something. */
+.svc-order.warn b { color: #ffb9ad; }
+.svc-order.warn .steps { color: #ffb9ad; }
