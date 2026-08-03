@@ -196,7 +196,7 @@ function bubbleTexture (text, ready) {
   const key = text + (ready ? '!' : '');
   if (BUBBLE_CACHE.has(key)) return BUBBLE_CACHE.get(key);
 
-  const W = 128, H = 64;
+  const W = 160, H = 76;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const g = c.getContext('2d');
@@ -215,7 +215,7 @@ function bubbleTexture (text, ready) {
   g.lineTo(W / 2, H - 12); g.closePath(); g.fill();
 
   g.fillStyle = '#2f2119';
-  g.font = '700 17px ui-monospace, Menlo, monospace';
+  g.font = '800 21px ui-monospace, Menlo, monospace';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.fillText(text, W / 2, (H - 22) / 2 + 3);
@@ -255,6 +255,119 @@ function pinTexture () {
   PIN_TEX.minFilter = THREE.NearestFilter;
   PIN_TEX.magFilter = THREE.NearestFilter;
   return PIN_TEX;
+}
+
+/**
+ * A person.
+ *
+ * The whole cast used to be four boxes — legs, body, head, a slab of hair —
+ * and at any distance they read as bollards. They are the thing you look at
+ * most in this game and the thing the game is about, so they get built
+ * properly: arms, a neck, shoes, a collar, one of several hair shapes, and a
+ * face. At 480 pixels wide a face is six pixels and every one of them counts,
+ * which is exactly the budget pixel art is designed for.
+ *
+ * `seed` picks the hair, the build and the palette, so a room full of people
+ * is a room full of different people rather than one person copied eight
+ * times. Nothing here is animated per-frame; the idle sway is applied to the
+ * group by whoever is holding it.
+ */
+const SKINS = [0xf0c9a0, 0xe0a878, 0xc98c5e, 0x9c6440, 0x74472c, 0x53301c];
+const HAIRS = [0x2b2320, 0x4a3327, 0x7a4a24, 0xb08040, 0xd8cfc4, 0x8a3a2a, 0x3a3f4a];
+const COATS = [0x6d7f9c, 0x8a6a52, 0x7d8f6b, 0x9c6b7a, 0x5f6470,
+               0xa8543f, 0x4f6d8a, 0x6b5a86, 0x3f6f63];
+const LEGS  = [0x3a3a44, 0x4a4038, 0x2f3540, 0x5a4a42, 0x3d4a3a];
+
+function personMesh (seed = 0, opts = {}) {
+  const g = new THREE.Group();
+  const r = (n, m) => Math.abs(Math.round(Math.sin(seed * 12.9898 + n * 78.233) * 43758.5453)) % m;
+
+  const skin = SKINS[r(1, SKINS.length)];
+  const hair = HAIRS[r(2, HAIRS.length)];
+  const coat = opts.coat ?? COATS[r(3, COATS.length)];
+  const trous = LEGS[r(4, LEGS.length)];
+  const tall = 1 + (r(5, 7) - 3) * 0.022;      // a bit of variation in height
+  const wide = 1 + (r(6, 5) - 2) * 0.035;
+
+  const put = (w, h, d, colour, x, y, z, shadow = false) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(colour));
+    m.position.set(x, y, z);
+    m.castShadow = shadow;
+    m.receiveShadow = true;
+    g.add(m);
+    return m;
+  };
+
+  // Shoes, legs, hips.
+  put(9, 5, 14, 0x2a2320, -6.5, 2.5, 1);
+  put(9, 5, 14, 0x2a2320, 6.5, 2.5, 1);
+  put(9.5, 48, 10, trous, -6.5, 29, 0);
+  put(9.5, 48, 10, trous, 6.5, 29, 0);
+  put(24 * wide, 12, 15, trous, 0, 58, 0, true);
+
+  // Torso, with a collar and a hint of a front opening so it reads as clothes.
+  put(27 * wide, 44, 18, coat, 0, 86, 0, true);
+  put(27 * wide, 5, 18.4, shade(coat, 0.78), 0, 106, 0);          // shoulder line
+  put(4, 40, 18.6, shade(coat, 0.84), 0, 85, 0);                  // placket
+  put(15, 6, 19, skin, 0, 111, 0.4);                              // open collar
+
+  // Arms, hanging, slightly forward so they are not fenceposts.
+  const arm = (side) => {
+    const a = put(8, 40, 9, coat, side * (15 * wide), 87, 1.5, true);
+    a.rotation.x = -0.06;
+    put(8, 9, 9, skin, side * (15 * wide), 65, 2.6);              // hand
+    return a;
+  };
+  arm(-1); arm(1);
+
+  // Neck and head.
+  put(10, 7, 10, shade(skin, 0.88), 0, 112, 0);
+  const head = put(20, 21, 19, skin, 0, 126, 0, true);
+
+  /*
+   * The face. Six pixels of it, and it is the difference between a room of
+   * people and a room of furniture.
+   */
+  const eye = (side) => {
+    put(3.4, 3.4, 1.2, 0x2b2320, side * 4.6, 128.5, 9.8);
+    put(1.2, 1.2, 1.4, 0xffffff, side * 5.4, 129.4, 9.9);          // catchlight
+  };
+  eye(-1); eye(1);
+  put(5.5, 1.6, 1.2, shade(skin, 0.7), 0, 121.5, 9.8);             // mouth
+  put(3.4, 2.2, 1.4, shade(skin, 0.9), 0, 125, 10);                // nose
+  // A little colour high on the cheek. Cheap, and it is most of "cute".
+  put(3.6, 2.4, 1.1, shade(skin, 1.06, 0xff9a86), -7.4, 124.5, 9.7);
+  put(3.6, 2.4, 1.1, shade(skin, 1.06, 0xff9a86), 7.4, 124.5, 9.7);
+
+  // Hair, in one of four shapes, because a slab on top of the head is what
+  // made everybody look identical from behind.
+  const style = r(7, 4);
+  put(21.5, 7, 20, hair, 0, 138.5, 0, true);                        // crown
+  if (style === 0) {                                                // cropped
+    put(21.5, 9, 4, hair, 0, 132, -8.6);
+  } else if (style === 1) {                                         // bob
+    put(21.5, 16, 20.5, hair, 0, 128, -0.6);
+    put(3, 16, 6, hair, -10.6, 128, 6);
+    put(3, 16, 6, hair, 10.6, 128, 6);
+    put(20, 5, 3, hair, 0, 135.5, 9.7);                             // fringe
+  } else if (style === 2) {                                         // tied back
+    put(21.5, 8, 20, hair, 0, 133, -1);
+    put(10, 16, 9, hair, 0, 128, -12);
+  } else {                                                          // loose
+    put(21.5, 20, 21, hair, 0, 126, -1.5);
+    put(19, 6, 4, hair, 0, 136, 9.4);
+  }
+
+  g.userData.head = head;
+  return g;
+}
+
+/** Darken or tint a colour without needing a whole material system. */
+function shade (hex, f, towards = null) {
+  const c = new THREE.Color(hex);
+  if (towards) c.lerp(new THREE.Color(towards), 0.42);
+  c.multiplyScalar(f);
+  return c.getHex();
 }
 
 /** One takeaway cup, used both on the counter and in your hands. */
@@ -586,12 +699,34 @@ export class View3D {
       const dark = w.material === 'glass';
       if (dark) continue;                    // glazing gets no joinery
 
-      add(new THREE.BoxGeometry(len, 14, 4), 0xbfae94,
-          mx + nx * off, 7, my + ny * off, rotY);            // skirting
-      add(new THREE.BoxGeometry(len, 6, 4), 0xbfae94,
+      add(new THREE.BoxGeometry(len, 16, 5), 0xd6c6ab,
+          mx + nx * off, 8, my + ny * off, rotY);            // skirting
+      add(new THREE.BoxGeometry(len, 7, 5), 0xd6c6ab,
+          mx + nx * off, 104, my + ny * off, rotY);          // dado rail
+      add(new THREE.BoxGeometry(len, 6, 4), 0xcdbb9e,
           mx + nx * off, 186, my + ny * off, rotY);          // picture rail
-      add(new THREE.BoxGeometry(len, 9, 4), 0xa8977c,
+      add(new THREE.BoxGeometry(len, 9, 4), 0xbda98a,
           mx + nx * off, WALL_H - 6, my + ny * off, rotY);   // cornice
+
+      /*
+       * Panelling below the dado.
+       *
+       * A four-metre run of flat plaster is the single least convincing
+       * thing in a room — real interiors are broken up at about a metre,
+       * and it is what stops a wall reading as a backdrop. Drawn as
+       * recessed frames, which at this resolution is two rectangles.
+       */
+      const panelW = 92;
+      const runs = Math.max(1, Math.floor((len - 24) / panelW));
+      const step = (len - 24) / runs;
+      for (let i = 0; i < runs; i++) {
+        const along = -len / 2 + 12 + step * (i + 0.5);
+        const ax = mx + Math.cos(-rotY) * along, ay = my + Math.sin(-rotY) * along;
+        add(new THREE.BoxGeometry(step - 16, 62, 3), 0xc9b696,
+            ax + nx * (off - 1), 55, ay + ny * (off - 1), rotY);
+        add(new THREE.BoxGeometry(step - 26, 50, 2), 0xdfd2b8,
+            ax + nx * (off - 2), 55, ay + ny * (off - 2), rotY);
+      }
     }
 
     bake(g);
@@ -695,8 +830,12 @@ export class View3D {
         break;
       }
       case 'lamp':
-        g.add(cyl(4, 120, PAL.metal));
-        g.add(cyl(18, 20, PAL.warm, 120, 8));
+        // Base, stem, shade and a warm bulb under it.
+        g.add(cyl(16, 4, 0x5a4a42, 0, 10));
+        g.add(cyl(3, 118, 0x8d949a, 4));
+        g.add(cyl(7, 6, PAL.warm, 116, 8));
+        g.add(cyl(20, 22, 0xe8d3a8, 122, 10));
+        g.add(cyl(21, 3, 0xc9a97c, 122, 10));
         break;
       case 'window': {
         // Which wall is this in? The nearest edge decides the orientation, so
@@ -796,19 +935,31 @@ export class View3D {
         break;
       }
       case 'customer': {
-        const coats = [0x6d7f9c, 0x8a6a52, 0x7d8f6b, 0x9c6b7a, 0x5f6470];
-        const coat = coats[(parseInt(t.id.slice(1), 10) || 0) % coats.length];
-        g.add(box(24, 60, 16, PAL.dark));                 // legs
-        g.add(box(30, 50, 20, coat, 60));                 // body
-        g.add(box(21, 21, 19, PAL.skin, 110));            // head
-        g.add(box(23, 8, 21, 0x4a3327, 126));             // hair
+        const seed = parseInt(t.id.replace(/\D/g, ''), 10) || 1;
+        const p = personMesh(seed);
+        // Facing roughly toward the middle of the room, so a crowd looks
+        // like people waiting rather than a shop-window display.
+        p.rotation.y = Math.atan2(this.room.w / 2 - t.x, this.room.h / 2 - t.y) +
+                       (seed % 5 - 2) * 0.22;
+        g.add(p);
         break;
       }
 
-      case 'door':
-        g.add(box(D.r * 1.8, 205, 8, PAL.wood, 0));
-        g.add(box(D.r * 1.4, 120, 4, PAL.wallGlass, 70));
+      case 'door': {
+        // Frame, leaf, glazing and a handle, rather than two slabs.
+        const W2 = D.r * 1.8;
+        g.add(box(W2 + 20, 216, 12, 0xb99a72, 0));            // architrave
+        g.add(box(W2, 205, 9, PAL.wood, 0));                  // leaf
+        g.add(box(W2 - 16, 96, 5, PAL.wallGlass, 96));        // upper glazing
+        g.add(box(W2 - 16, 4, 6, PAL.wood, 144));             // glazing bar
+        g.add(box(4, 96, 6, PAL.wood, 96));
+        g.add(box(W2 - 20, 52, 4, 0x8a5a34, 26));             // lower panel
+        const handle = cyl(3, 11, 0xd8c48a, 108, 8);
+        handle.rotation.z = Math.PI / 2;
+        handle.position.set(W2 / 2 - 14, 108, 7);
+        g.add(handle);
         break;
+      }
 
       case 'chair': {
         for (const [lx, lz] of [[-13, -13], [13, -13], [-13, 13], [13, 13]]) {
@@ -901,16 +1052,7 @@ export class View3D {
     const g = new THREE.Group();
     const col = mat;
 
-    const legs = new THREE.Mesh(new THREE.BoxGeometry(24, 62, 16), col(PAL.dark));
-    legs.position.y = 31;
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(30, 52, 20), col(PAL.coat));
-    torso.position.y = 88;
-    const head = new THREE.Mesh(new THREE.BoxGeometry(22, 22, 20), col(PAL.skin));
-    head.position.y = 126;
-    const hair = new THREE.Mesh(new THREE.BoxGeometry(24, 9, 22), col(0x4a3327));
-    hair.position.y = 138;
-
-    for (const m of [legs, torso, head, hair]) { m.castShadow = true; g.add(m); }
+    g.add(personMesh(3, { coat: PAL.coat }));
 
     // A ring on the floor that reads as their state without needing a HUD.
     const ring = new THREE.Mesh(
@@ -981,7 +1123,10 @@ export class View3D {
       // your face when you walk up to somebody; scaling with distance keeps
       // every order equally readable wherever it is in the room.
       const d = this.camera.position.distanceTo(sp.position);
-      const k = Math.max(120, Math.min(900, d)) * 0.088;
+      // Bigger than the first pass: at a full room's distance the old size
+      // came out as an illegible white smudge, and an order you cannot read
+      // is worse than no bubble at all.
+      const k = Math.max(150, Math.min(1300, d)) * 0.135;
       sp.scale.set(k, k / 2, 1);
     }
 

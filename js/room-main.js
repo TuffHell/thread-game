@@ -680,15 +680,26 @@ canvas.addEventListener('pointerdown', e => {
   // Snapshot before the gesture so the readout afterwards is the change the
   // whole drag made, not the last two pixels of it.
   ui.markBefore(studio);
+  canvas.classList.add('grabbing');
   studio.onDown(p.x, p.y);
 });
 canvas.addEventListener('pointermove', e => {
   const p = local(e);
   studio.onMove(p.x, p.y);
+  // Say what the pointer can do here. Nothing in the game told you the
+  // furniture was draggable, and a crosshair cursor actively said it was not.
+  if (!studio.held) {
+    const over = studio.hover ? studio.room.things.find(t => t.id === studio.hover) : null;
+    canvas.classList.toggle('over-fixed', !!(over && !over.movable));
+  }
   const reading = studio.probeReading();
   if (!studio.trayPick) ui.say(reading ? reading.join('   ·   ') : '');
 });
-canvas.addEventListener('pointerup', () => { studio.onUp(); ui.reportDelta(studio); });
+canvas.addEventListener('pointerup', () => {
+  studio.onUp();
+  canvas.classList.remove('grabbing');
+  ui.reportDelta(studio);
+});
 canvas.addEventListener('pointercancel', () => studio.onUp());
 window.addEventListener('keydown', e => {
   if ((e.key === 'Backspace' || e.key === 'Delete') && commission) {
