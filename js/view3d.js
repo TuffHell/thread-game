@@ -192,33 +192,67 @@ void main() {
  * should be putting in front of anybody.
  */
 const BUBBLE_CACHE = new Map();
-function bubbleTexture (text, ready) {
-  const key = text + (ready ? '!' : '');
+
+/*
+ * Drawn as a picture of the drink, not as its name.
+ *
+ * The first version put "FLAT WHITE" in the bubble and it was unreadable,
+ * and it was unreadable for a structural reason rather than a fixable one:
+ * the whole scene renders into a buffer 480 pixels across, so a bubble a
+ * metre wide at four metres away is about thirty pixels and the type inside
+ * it is four pixels tall. No amount of bolding fixes four pixels.
+ *
+ * So it is a cup. A tall pale one with a swirl on top is a flat white, a
+ * short dark one is an espresso, and both of those read at thirty pixels
+ * because that is what pixel art is for. The words are still in the order
+ * list for anybody who wants them.
+ */
+function bubbleTexture (kind, ready) {
+  const key = kind + (ready ? '!' : '');
   if (BUBBLE_CACHE.has(key)) return BUBBLE_CACHE.get(key);
 
-  const W = 160, H = 76;
+  const W = 64, H = 64;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
+  const px = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
 
-  // Cream bubble, heavy dark outline, little tail. Same treatment as the
-  // speech bubble in the interface, so the two read as one language.
-  const body = ready ? '#ffe3ac' : '#f6f0e2';
-  g.fillStyle = '#2f2119';
-  g.fillRect(2, 2, W - 4, H - 22);
-  g.beginPath(); g.moveTo(W / 2 - 9, H - 20); g.lineTo(W / 2 + 9, H - 20);
-  g.lineTo(W / 2, H - 6); g.closePath(); g.fill();
-  g.fillStyle = body;
-  g.fillRect(5, 5, W - 10, H - 28);
-  g.beginPath(); g.moveTo(W / 2 - 6, H - 23); g.lineTo(W / 2 + 6, H - 23);
-  g.lineTo(W / 2, H - 12); g.closePath(); g.fill();
+  // Bubble: cream normally, warm when the drink is made and on your tray.
+  const body = ready ? '#ffe0a4' : '#f7f1e3';
+  px(4, 2, 56, 4, '#2f2119');
+  px(2, 6, 60, 38, '#2f2119');
+  px(4, 44, 56, 4, '#2f2119');
+  px(6, 6, 52, 38, body);
+  // Tail.
+  px(26, 46, 12, 4, '#2f2119');
+  px(28, 48, 8, 4, '#2f2119');
+  px(30, 50, 4, 4, '#2f2119');
+  px(28, 46, 8, 4, body);
+  px(30, 48, 4, 3, body);
 
-  g.fillStyle = '#2f2119';
-  g.font = '800 21px ui-monospace, Menlo, monospace';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(text, W / 2, (H - 22) / 2 + 3);
+  if (kind === 'flat white') {
+    // Tall cup, pale, with a swirl of milk on the surface.
+    px(20, 12, 24, 26, '#2f2119');
+    px(22, 14, 20, 22, '#f4efe4');
+    px(24, 16, 16, 6, '#c9a179');       // coffee
+    px(26, 17, 12, 3, '#e8d8bf');       // the swirl
+    px(29, 18, 6, 2, '#c9a179');
+    px(44, 18, 6, 10, '#2f2119');       // handle
+    px(46, 20, 2, 6, body);
+    px(18, 38, 28, 4, '#2f2119');       // saucer
+    px(20, 39, 24, 2, '#e6ddd0');
+  } else {
+    // Small dark cup: espresso.
+    px(24, 20, 18, 18, '#2f2119');
+    px(26, 22, 14, 14, '#f4efe4');
+    px(28, 24, 10, 6, '#4a2c18');       // a very dark shot
+    px(29, 25, 8, 2, '#9c6b3f');        // crema
+    px(42, 25, 5, 8, '#2f2119');
+    px(43.5, 26.5, 2, 5, body);
+    px(22, 38, 22, 4, '#2f2119');
+    px(24, 39, 18, 2, '#e6ddd0');
+  }
 
   const tex = new THREE.CanvasTexture(c);
   tex.minFilter = THREE.NearestFilter;
@@ -359,7 +393,34 @@ function personMesh (seed = 0, opts = {}) {
   }
 
   g.userData.head = head;
+  // Thirty little boxes each, times eight people waiting, is two hundred and
+  // forty draw calls of person. Weld each figure into a handful; the idle
+  // motion is applied to the whole body, so nothing is lost by it.
+  bake(g);
+  g.userData.seed = seed;
   return g;
+}
+
+/**
+ * Breathing, and shifting weight.
+ *
+ * Nothing in this room moved. A still figure with a face on it reads as a
+ * mannequin — worse, in a way, than the boxes did, because the face raises
+ * the expectation. This is four lines of trigonometry and it is the single
+ * cheapest thing in the project per unit of life.
+ *
+ * Everyone is on their own phase, because eight people breathing in unison
+ * is its own kind of uncanny.
+ */
+function idle (g, t) {
+  const seed = g.userData.seed ?? 1;
+  const ph = seed * 1.7;
+  // Breath: a slow vertical rise of about a centimetre.
+  g.position.y = (g.userData.baseY ?? 0) + Math.sin(t / 1100 + ph) * 1.1;
+  // Weight shifting from one foot to the other, on a much longer cycle.
+  const shift = Math.sin(t / 3400 + ph * 2);
+  g.rotation.z = shift * 0.012;
+  g.position.x = (g.userData.baseX ?? 0) + shift * 1.4;
 }
 
 /** Darken or tint a colour without needing a whole material system. */
@@ -428,6 +489,7 @@ export class View3D {
     const s = this.scene;
     while (s.children.length) s.remove(s.children[0]);
     this.thingMeshes.clear();
+    this.alive = [];
 
     const cx = room.w / 2, cz = room.h / 2;
 
@@ -921,17 +983,55 @@ export class View3D {
         g.children.at(-1).position.z = -D.r * 0.7;
         break;
       case 'seat': {
-        g.add(cyl(D.r * 0.55, 4, 0x6f767c, 0, 12));      // foot
-        g.add(cyl(7, 68, 0x9aa2a8, 4, 8));               // column
-        g.add(cyl(D.r * 0.95, 7, 0xb5793f, 72, 14));     // top
-        g.add(cyl(D.r * 0.95, 2, 0x8f5c2c, 79, 14));     // edge banding
+        /*
+         * A café table, and the things people leave on one. The top used to
+         * be a disc on a pole; it now has a moulded edge, a proper cast base
+         * with a collar, and a scatter of small objects that changes per
+         * table — because a room of identical bare tables reads as a
+         * showroom and this is meant to be a Tuesday morning.
+         */
+        const n = parseInt(t.id.replace(/\D/g, ''), 10) || 1;
+        g.add(cyl(D.r * 0.6, 3, 0x4e5459, 0, 14));       // base plate
+        g.add(cyl(D.r * 0.5, 5, 0x6f767c, 3, 14));       // base
+        g.add(cyl(9, 8, 0x8a9299, 8, 10));               // collar
+        g.add(cyl(6.5, 60, 0x9aa2a8, 16, 8));            // column
+        g.add(cyl(10, 4, 0x8a9299, 70, 10));             // top collar
+        g.add(cyl(D.r * 0.95, 6, 0xb5793f, 74, 16));     // top
+        g.add(cyl(D.r * 0.99, 3, 0x8f5c2c, 78, 16));     // moulded edge
+        g.add(cyl(D.r * 0.88, 1.5, 0xc98d54, 80, 16));   // lighter inlay
+
+        // What is on it. Every table gets something, never the same something.
+        const top = 81;
         const cup = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 5.5, 10, 8), col(0xf3ece0));
-        cup.position.set(9, 86, -6);
+        cup.position.set(9, top + 5, -6);
         cup.castShadow = true;
         g.add(cup);
-        const saucer = cyl(11, 2, 0xe6ddd0, 81, 10);
-        saucer.position.set(9, 82, -6);
+        const saucer = cyl(11, 2, 0xe6ddd0, top, 10);
+        saucer.position.set(9, top + 1, -6);
         g.add(saucer);
+
+        if (n % 3 === 0) {
+          // A little vase with something in it.
+          g.add(cyl(4, 12, 0xd9cbb4, top, 8)).position.set(-12, top + 6, 4);
+          const stem = cyl(1.5, 14, 0x5f8a4a, top + 12, 6);
+          stem.position.set(-12, top + 19, 4); g.add(stem);
+          const bud = new THREE.Mesh(new THREE.BoxGeometry(6, 6, 6), col(0xe08a9a));
+          bud.position.set(-12, top + 28, 4); g.add(bud);
+        } else if (n % 3 === 1) {
+          // A folded newspaper.
+          const paper = box(26, 2, 18, 0xe8e2d2, top);
+          paper.position.set(-10, top + 1, 6);
+          paper.rotation.y = 0.4;
+          g.add(paper);
+          const fold = box(26, 1.5, 9, 0xd6cfbd, top + 2);
+          fold.position.set(-10, top + 3, 10);
+          fold.rotation.y = 0.4;
+          g.add(fold);
+        } else {
+          // A small plate with something on it.
+          g.add(cyl(9, 2, 0xefe7d8, top, 10)).position.set(-11, top + 1, 3);
+          g.add(cyl(5, 4, 0xc98a52, top + 2, 8)).position.set(-11, top + 4, 3);
+        }
         break;
       }
       case 'customer': {
@@ -942,6 +1042,8 @@ export class View3D {
         p.rotation.y = Math.atan2(this.room.w / 2 - t.x, this.room.h / 2 - t.y) +
                        (seed % 5 - 2) * 0.22;
         g.add(p);
+        this.alive = this.alive ?? [];
+        this.alive.push(p);
         break;
       }
 
@@ -962,23 +1064,47 @@ export class View3D {
       }
 
       case 'chair': {
+        /*
+         * A bentwood café chair. Tapered legs, stretchers between them, a
+         * seat with a lip, and a rounded back with three spindles — which is
+         * three more decisions than the four sticks and a plank it used to
+         * be, and the chairs are the most repeated object in the game.
+         */
+        const woodA = 0x7a5636, woodB = 0xa9743f, woodC = 0xc08a52;
         for (const [lx, lz] of [[-13, -13], [13, -13], [-13, 13], [13, 13]]) {
-          const leg = box(4, 42, 4, 0x7a5636, 0);
+          const leg = box(4.5, 40, 4.5, woodA, 0);
           leg.position.x = lx; leg.position.z = lz;
           g.add(leg);
+          const foot = box(5.5, 3, 5.5, 0x5f4128, 0);
+          foot.position.x = lx; foot.position.z = lz;
+          g.add(foot);
         }
-        g.add(box(34, 6, 34, 0xa9743f, 42));
-        // Back: two uprights and two slats, so it is a chair and not a slab.
+        // Stretchers, low down, which is most of what makes a chair look real.
+        for (const z of [-13, 13]) {
+          const st = box(26, 3, 3, woodA, 14);
+          st.position.z = z; g.add(st);
+        }
+        for (const x of [-13, 13]) {
+          const st = box(3, 3, 26, woodA, 14);
+          st.position.x = x; g.add(st);
+        }
+        g.add(box(34, 5, 34, woodB, 40));                 // seat
+        g.add(box(36, 3, 36, woodC, 44));                 // seat lip
+        // Back: two uprights, a curved top rail and three spindles.
         for (const ux of [-14, 14]) {
-          const up = box(4, 40, 4, 0x7a5636, 48);
+          const up = box(4, 44, 4, woodA, 45);
           up.position.x = ux; up.position.z = -15;
           g.add(up);
         }
-        for (const sy of [62, 76]) {
-          const slat = box(30, 7, 4, 0xa9743f, sy);
-          slat.position.z = -15;
-          g.add(slat);
+        for (const sx of [-7, 0, 7]) {
+          const sp = box(2.5, 30, 2.5, woodB, 52);
+          sp.position.x = sx; sp.position.z = -15;
+          g.add(sp);
         }
+        const rail = box(32, 6, 5, woodC, 84);
+        rail.position.z = -15; g.add(rail);
+        const railCap = box(26, 4, 6, woodB, 89);
+        railCap.position.z = -15; g.add(railCap);
         break;
       }
       case 'shelf': {
@@ -1052,7 +1178,8 @@ export class View3D {
     const g = new THREE.Group();
     const col = mat;
 
-    g.add(personMesh(3, { coat: PAL.coat }));
+    this.visitorBody = personMesh(3, { coat: PAL.coat });
+    g.add(this.visitorBody);
 
     // A ring on the floor that reads as their state without needing a HUD.
     const ring = new THREE.Mesh(
@@ -1100,7 +1227,7 @@ export class View3D {
       const c = o.customer;
       if (!c || !c.placed) continue;
       live.add(o.id);
-      const label = o.name === 'flat white' ? 'FLAT WHITE' : 'ESPRESSO';
+      const label = o.name;
       let sp = this.bubbles.get(o.id);
       if (!sp) {
         sp = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -1126,8 +1253,9 @@ export class View3D {
       // Bigger than the first pass: at a full room's distance the old size
       // came out as an illegible white smudge, and an order you cannot read
       // is worse than no bubble at all.
-      const k = Math.max(150, Math.min(1300, d)) * 0.135;
-      sp.scale.set(k, k / 2, 1);
+      // Square now that it is a picture rather than a line of type.
+      const k = Math.max(150, Math.min(1300, d)) * 0.095;
+      sp.scale.set(k, k, 1);
     }
 
     for (const [id, sp] of this.bubbles) {
@@ -1421,7 +1549,15 @@ export class View3D {
     this.applyFov(aspect, this.hFov ?? 78);
   }
 
+  /** One tick of life. Called from the frame loop, costs nothing. */
+  breathe () {
+    const t = performance.now();
+    if (this.alive) for (const p of this.alive) idle(p, t);
+    if (this.visitorBody) idle(this.visitorBody, t);
+  }
+
   render () {
+    this.breathe();
     this.resize();
     if ((this.styleMode ?? 'crisp') === 'crisp') {
       this.renderer.setRenderTarget(null);

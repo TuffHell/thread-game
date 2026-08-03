@@ -198,6 +198,43 @@ export function supportUnder (r, x, y, ignore = null) {
   return { top, on };
 }
 
+/**
+ * Push a set of points apart until nobody is standing inside anybody.
+ *
+ * Waiting spots are picked from furniture positions, and when two orders land
+ * on the same chair the two people occupy the same cubic metre — which looked
+ * exactly as bad as it sounds once they had faces. A few rounds of relaxation
+ * is all it takes, and it keeps them near where they were meant to be rather
+ * than scattering them.
+ */
+export function spreadOut (items, minGap = 62, bounds = null, rounds = 14) {
+  for (let n = 0; n < rounds; n++) {
+    let moved = false;
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i], b = items[j];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        let d = Math.hypot(dx, dy);
+        if (d >= minGap) continue;
+        // Exactly coincident: nudge them apart along a fixed diagonal first.
+        if (d < 1e-3) { dx = 1; dy = 0.6; d = Math.hypot(dx, dy); }
+        const push = (minGap - d) / 2 / d;
+        a.x -= dx * push; a.y -= dy * push;
+        b.x += dx * push; b.y += dy * push;
+        moved = true;
+      }
+    }
+    if (bounds) {
+      for (const t of items) {
+        t.x = Math.max(bounds.pad, Math.min(bounds.w - bounds.pad, t.x));
+        t.y = Math.max(bounds.pad, Math.min(bounds.h - bounds.pad, t.y));
+      }
+    }
+    if (!moved) break;
+  }
+  return items;
+}
+
 /** Things that belong on a worktop rather than on the floor. */
 export const COUNTERTOP = new Set(['machine', 'grinder']);
 

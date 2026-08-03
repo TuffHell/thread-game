@@ -38,7 +38,7 @@
  * the cost and then shows it is payable, rather than pretending it is zero.
  */
 
-import { def, thing } from './room.js';
+import { def, thing, spreadOut } from './room.js';
 
 export const STEPS = ['grind', 'pull', 'steam', 'serve', 'clear'];
 
@@ -234,6 +234,10 @@ export class Service {
       o.customer = c;
       this.room.things.push(c);
     });
+    // Two orders landing on the same chair put two people in the same cubic
+    // metre, which was invisible when they were boxes and is not now.
+    spreadOut(this.orders.map(o => o.customer).filter(Boolean), 66,
+              { w: this.room.w, h: this.room.h, pad: 60 });
   }
 
   /** Take everyone and everything the shift put in the room back out. */

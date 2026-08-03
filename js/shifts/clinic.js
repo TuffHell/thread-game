@@ -35,7 +35,7 @@
  * accommodation is not a thing you install, it is a thing you keep doing.
  */
 
-import { thing } from '../room.js';
+import { thing, spreadOut } from '../room.js';
 
 export const MODEL = {
   reach: 130,
@@ -112,6 +112,8 @@ export class ClinicShift {
         chat: 0
       });
     }
+    spreadOut(this.queue.map(p => p.person), 68,
+              { w: this.room.w, h: this.room.h, pad: 60 });
     this.target = this.queue.length;
     this.board = this.room.things.find(t => t.placed && t.kind === 'menu') ?? null;
   }

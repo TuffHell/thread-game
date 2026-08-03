@@ -41,7 +41,7 @@
  *   working blind.
  */
 
-import { def, thing, KINDS } from '../room.js';
+import { def, thing, KINDS, spreadOut } from '../room.js';
 import { PEOPLE } from '../person.js';
 
 export const MODEL = {
@@ -151,6 +151,8 @@ export class HallShift {
       this.room.things.push(c);
       return { key: k, person: p, thing: c, reserve: 100, worst: 100, chat: 0, left: false };
     });
+    spreadOut(this.guests.map(g => g.thing), 96,
+              { w: this.room.w, h: this.room.h, pad: 70 });
   }
 
   guestSpot (i) {
