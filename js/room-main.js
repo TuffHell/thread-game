@@ -94,6 +94,8 @@ let activeShift = null;
 
 const ui = {
   onRoom (s) {
+    this._lastResults = null;
+    $('delta').hidden = true;
     const idx = COMMISSIONS.indexOf(commission) + 1;
     $('roomCount').textContent = `commission ${idx} of ${COMMISSIONS.length}`;
     $('roomTitle').textContent = commission.title;
@@ -118,9 +120,59 @@ const ui = {
     $('personBlurb').textContent = s.person.blurb;
   },
 
+  /**
+   * What that change just did.
+   *
+   * Playtesting this cold, the worst moment in the game was dragging the
+   * grinder across the room and getting nothing back: the heatmap shifted,
+   * the verdict said the same sentence it had said before, and there was no
+   * way to tell whether the move had helped, hurt or done nothing. The
+   * central verb had no response.
+   *
+   * So every recompute now reports the change per person, in the terms the
+   * game actually cares about — did they get through, and how bad was the
+   * worst moment — and says so for a couple of seconds.
+   */
+  /** Remember where everyone stood before a gesture starts. */
+  markBefore (s) {
+    this._lastResults = s.results?.map(r => ({
+      name: r.person.name, ok: r.ok, worst: Math.round(r.worst.load * 100)
+    })) ?? null;
+  },
+
+  reportDelta (s) {
+    const now = s.results.map(r => ({
+      name: r.person.name, ok: r.ok, worst: Math.round(r.worst.load * 100)
+    }));
+    const before = this._lastResults;
+    if (!before || before.length !== now.length) return;
+
+    const bits = [];
+    for (let i = 0; i < now.length; i++) {
+      const a = before[i], b = now[i];
+      if (a.ok !== b.ok) {
+        bits.push(`<b class="${b.ok ? 'up' : 'down'}">${b.name} ${b.ok ? 'gets through now' : 'no longer gets through'}</b>`);
+      } else if (b.worst !== a.worst) {
+        const d = b.worst - a.worst;
+        // Small wobbles are noise from the route shifting a cell; do not
+        // shout about them.
+        if (Math.abs(d) < 2) continue;
+        bits.push(`<span class="${d < 0 ? 'up' : 'down'}">${b.name}\u2019s worst moment ` +
+                  `${d < 0 ? 'down' : 'up'} ${Math.abs(d)} to ${b.worst}%</span>`);
+      }
+    }
+    const el = $('delta');
+    if (!bits.length) { el.hidden = true; return; }
+    el.innerHTML = bits.join('');
+    el.hidden = false;
+    clearTimeout(this._deltaTimer);
+    this._deltaTimer = setTimeout(() => { el.hidden = true; }, 4200);
+  },
+
   onResult (s) {
     const v = s.verdict();
     if (!v) return;
+
     $('verdict').classList.toggle('ok', v.ok);
     $('verdict').classList.toggle('owner', !!v.owner);
     $('verdictHead').textContent = v.headline;
@@ -205,7 +257,8 @@ function setInGame (on) {
   $('gamehud').hidden = !on;
   if (!on) {
     for (const id of ['tray', 'layers', 'verdict', 'meters', 'walkbar',
-                      'interrupt3d', 'signoffBtn', 'svcTray', 'svcSay']) {
+                      'interrupt3d', 'signoffBtn', 'svcTray', 'svcSay', 'delta',
+                      'svcWay']) {
       $(id).hidden = true;
     }
     $('stage').hidden = true;
@@ -543,6 +596,8 @@ function setMode (m) {
   $('svcAction').hidden = true;
   $('svcTray').hidden = m !== 'service';
   $('svcSay').hidden = true;
+  $('svcWay').hidden = true;
+  if (m !== 'service') view.setWaypoint(null);
   // Every room has a shift of its own, unlocked by signing that room off.
   $('viewService').hidden = !(commission && shiftFor(commission.room) &&
                               progress.done[commission.id]);
@@ -551,6 +606,7 @@ function setMode (m) {
   $('walkbar').hidden = m !== 'walk';
   $('meters').hidden = m !== 'walk' && m !== 'look';
   $('tray').hidden = m !== 'plan';
+  $('delta').hidden = true;
   $('layers').hidden = m !== 'look';
   $('verdict').hidden = m !== 'plan' && m !== 'look';
   $('probe').style.display = m === 'plan' ? '' : 'none';
@@ -621,6 +677,9 @@ const local = e => {
 canvas.addEventListener('pointerdown', e => {
   canvas.setPointerCapture(e.pointerId);
   const p = local(e);
+  // Snapshot before the gesture so the readout afterwards is the change the
+  // whole drag made, not the last two pixels of it.
+  ui.markBefore(studio);
   studio.onDown(p.x, p.y);
 });
 canvas.addEventListener('pointermove', e => {
@@ -629,7 +688,7 @@ canvas.addEventListener('pointermove', e => {
   const reading = studio.probeReading();
   if (!studio.trayPick) ui.say(reading ? reading.join('   ·   ') : '');
 });
-canvas.addEventListener('pointerup', () => studio.onUp());
+canvas.addEventListener('pointerup', () => { studio.onUp(); ui.reportDelta(studio); });
 canvas.addEventListener('pointercancel', () => studio.onUp());
 window.addEventListener('keydown', e => {
   if ((e.key === 'Backspace' || e.key === 'Delete') && commission) {
@@ -703,10 +762,12 @@ $('hintBtn').onclick = () => {
 
 $('hintClose').onclick = () => { $('hintCard').hidden = true; };
 $('hintDo').onclick = () => {
+  ui.markBefore(studio);
   if (pendingHint) applyMove(studio.room, pendingHint);
   pendingHint = null;
   $('hintCard').hidden = true;
   studio.recompute();
+  ui.reportDelta(studio);
   ui.syncTray(studio);
 };
 
@@ -750,6 +811,32 @@ function tickService (dt) {
   sound.setLoad(studio.grid.load[studio.grid.at(walker.x, walker.y)] ?? 0);
 
   const h = service.hud();
+
+  /*
+   * Where to go next.
+   *
+   * Playtested cold and this was the worst moment in the whole game: dropped
+   * into a first-person room, told to grind coffee, and left turning on the
+   * spot because nothing said where the grinder was. A pin over the target
+   * and a line of text that works even when it is behind you.
+   */
+  const nextThing = service.nextTarget?.() ?? null;
+  view.setWaypoint(nextThing && !service.working ? nextThing : null);
+  if (nextThing && !service.working && !service.atHand(walker.x, walker.y)) {
+    const dx = nextThing.x - walker.x, dy = nextThing.y - walker.y;
+    const dist = Math.hypot(dx, dy);
+    // Which way to turn, in the walker's own frame.
+    const rel = Math.atan2(
+      dx * Math.cos(walker.yaw) - dy * Math.sin(walker.yaw),
+      dx * Math.sin(walker.yaw) + dy * Math.cos(walker.yaw));
+    const side = Math.abs(rel) < 0.5 ? 'straight ahead'
+      : Math.abs(rel) > 2.4 ? 'behind you'
+        : (rel > 0 ? 'to your right' : 'to your left');
+    setText('svcWayText', `${nextThing.label} — ${(dist / 100).toFixed(1)}m ${side}`);
+    $('svcWay').hidden = false;
+  } else {
+    $('svcWay').hidden = true;
+  }
 
   setHTML('svcOrders', h.rows.length
     ? h.rows.map(r =>

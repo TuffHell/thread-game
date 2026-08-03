@@ -1271,3 +1271,90 @@ html, body { overflow: hidden; }
   color: #ffe3ac;
 }
 .m-chip { transition: background var(--t-fast), border-color var(--t-fast); }
+
+/* ---------------------------------------------------------------- */
+/* What that change did                                              */
+/* ---------------------------------------------------------------- */
+
+/*
+ * Sits just under the header, out of the way of the plan, and only appears
+ * when something actually moved. Green down, red up — the numbers are loads,
+ * so lower is better and the colours have to say so or they read backwards.
+ */
+.delta {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: auto;
+  bottom: clamp(150px, 24vh, 210px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: rgba(24, 16, 18, 0.86);
+  border: 2px solid var(--edge);
+  box-shadow: 0 4px 0 rgba(18, 10, 12, 0.3);
+  pointer-events: none;
+  z-index: 5;
+  font-size: 0.84rem;
+  animation: delta-in 220ms var(--ease);
+}
+.delta .up { color: #8ee0b6; }
+.delta .down { color: #ff9d90; }
+.delta b { font-weight: 600; }
+@keyframes delta-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) { .delta { animation: none; } }
+
+/* The tray scrolled horizontally with nothing to say so, and the item most
+   levels are actually solved with was the one off the right-hand edge. */
+@media (max-width: 860px) {
+  .tray {
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 26px), transparent 100%);
+  }
+  .tray::after {
+    content: '›';
+    position: sticky;
+    right: 0;
+    align-self: center;
+    flex: 0 0 auto;
+    padding: 0 4px 0 10px;
+    font-size: 1.3rem;
+    color: var(--ink-soft);
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Where to go next                                                  */
+/* ---------------------------------------------------------------- */
+
+/*
+ * A pin in the world handles the case where the thing is in front of you.
+ * This handles the other three quarters of the compass, which is the case
+ * that actually leaves people stranded.
+ */
+.wayfind {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: clamp(126px, 20vh, 190px);
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: rgba(24, 16, 18, 0.8);
+  border: 2px solid rgba(255, 206, 156, 0.34);
+  pointer-events: none;
+  z-index: 4;
+}
+.wayfind p {
+  margin: 0;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  color: #ffd9a0;
+  white-space: nowrap;
+}

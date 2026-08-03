@@ -97,6 +97,9 @@
     <p id="svcActionText"></p>
   </div>
 
+  <!-- Where to go next. Works even when the target is behind you. -->
+  <div class="wayfind" id="svcWay" hidden><p id="svcWayText"></p></div>
+
   <!-- What is in your hands. Empty means go and make something. -->
   <div class="carry" id="svcTray" hidden aria-label="What you are carrying">
     <span class="carry-label">carrying</span>
@@ -110,6 +113,10 @@
     <p class="free-keys"><b>W A S D</b> move &nbsp;·&nbsp; <b>← →</b> or drag to look &nbsp;·&nbsp; <b>E</b> work</p>
     <p class="free-read" id="freeRead"></p>
   </div>
+
+  <!-- What that last change did, per person. Without it the core verb of
+       the game — drag a thing — has no response at all. -->
+  <div class="delta" id="delta" hidden></div>
 
   <aside class="tray" id="tray" hidden aria-label="Things you can place"></aside>
   <nav class="layers" id="layers" hidden aria-label="Sensory layer"></nav>

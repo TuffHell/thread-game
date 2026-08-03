@@ -281,6 +281,20 @@ export class LibraryShift {
         : '“I think I read the same paragraph nine times.”');
   }
 
+  /**
+   * Where to go next.
+   *
+   * The loudest job first, which is what the mode argues for: get the noise
+   * over with in one block while he has not settled into anything yet.
+   */
+  nextTarget () {
+    if (this.finished) return null;
+    const left = this.jobs.filter(j => !j.done);
+    if (!left.length) return null;
+    const j = left.slice().sort((a, b) => this.costOf(b) - this.costOf(a))[0];
+    return { x: j.x, y: j.y, label: j.label.toLowerCase(), y0: 120 };
+  }
+
   /** Anybody to speak to. He is the only person here. */
   talkTarget (x, y) {
     return Math.hypot(x - this.reader.x, y - this.reader.y) < 150 ? this.reader : null;

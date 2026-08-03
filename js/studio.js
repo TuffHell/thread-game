@@ -141,6 +141,18 @@ export class Studio {
       : '';
 
     if (bad.reason === 'spike') {
+      // Playtested: dump something loud by the entrance and she spikes on the
+      // first step, and the game said "on the way to the counter" — which is
+      // a place she never got anywhere near. She did not get in.
+      if (!bad.path.length) {
+        return {
+          ok: false,
+          headline: `${who} did not get through the door.`,
+          detail: `It is already past what ${who} can take on the threshold, ` +
+                  `and the reason is ${cause}. There is no route from here ` +
+                  'that starts well.' + broke
+        };
+      }
       return {
         ok: false,
         headline: `It became too much for ${who}, ${bad.leg}.`,

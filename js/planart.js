@@ -491,16 +491,35 @@ export function drawRoutePixel (ctx, path, toBuf, ok) {
 
 /** Where it went wrong, marked with a cross you cannot miss. */
 export function drawStopMark (ctx, bx, by) {
+  /*
+   * Playtested: this used to be a five-pixel cross and it disappeared under
+   * whatever furniture happened to be standing on the spot — which, since
+   * the spot is usually where you just put something loud, was almost
+   * always. It now gets a ring to sit in and a dark surround, so the one
+   * mark on the plan that says "this is where it went wrong" is the one
+   * mark on the plan you cannot miss.
+   */
   const put = (x, y, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, 1, 1); };
-  const R = 5;
-  for (let i = -R; i <= R; i++) {
-    for (const [dx, dy] of [[i, i], [i, -i]]) {
-      put(Math.round(bx + dx), Math.round(by + dy), '#2f2119');
-    }
+  const cx = Math.round(bx), cy = Math.round(by);
+  const R = 9;
+
+  // A dark disc to lift it off whatever it is standing on.
+  ctx.fillStyle = 'rgba(28, 12, 10, 0.72)';
+  for (let dy = -R; dy <= R; dy++) {
+    const w = Math.round(Math.sqrt(R * R - dy * dy));
+    ctx.fillRect(cx - w, cy + dy, w * 2 + 1, 1);
   }
-  for (let i = -R + 1; i <= R - 1; i++) {
+  // Ring.
+  for (let a = 0; a < 40; a++) {
+    const th = a / 40 * Math.PI * 2;
+    put(Math.round(cx + Math.cos(th) * R), Math.round(cy + Math.sin(th) * R), '#ff6b5e');
+  }
+  // Cross, drawn thick.
+  const arm = 6;
+  for (let i = -arm; i <= arm; i++) {
     for (const [dx, dy] of [[i, i], [i, -i]]) {
-      put(Math.round(bx + dx), Math.round(by + dy), '#ff6b5e');
+      put(cx + dx, cy + dy, '#ffe3dd');
+      put(cx + dx + 1, cy + dy, '#ff6b5e');
     }
   }
 }

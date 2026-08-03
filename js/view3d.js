@@ -227,6 +227,36 @@ function bubbleTexture (text, ready) {
   return tex;
 }
 
+/**
+ * A pin over the thing you are supposed to be walking to.
+ *
+ * Playtested cold: the shift drops you into a first-person room, tells you
+ * to grind coffee, and never says where the grinder is. You spend the first
+ * thirty seconds turning on the spot. Every one of the four modes had this
+ * and it is the difference between a room you are working in and a room you
+ * are lost in.
+ */
+let PIN_TEX = null;
+function pinTexture () {
+  if (PIN_TEX) return PIN_TEX;
+  const c = document.createElement('canvas');
+  c.width = 32; c.height = 40;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  const px = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  // Chunky downward chevron with a dark outline, in the warm accent.
+  px(6, 4, 20, 4, '#2f2119');
+  px(4, 8, 24, 4, '#2f2119');
+  for (let i = 0; i < 8; i++) px(6 + i * 1.5, 12 + i * 2, 20 - i * 3, 2, '#2f2119');
+  px(8, 6, 16, 4, '#ffd9a0');
+  px(7, 10, 18, 3, '#ffc46b');
+  for (let i = 0; i < 6; i++) px(9 + i * 1.6, 13 + i * 2, 14 - i * 3.2, 2, '#ffc46b');
+  PIN_TEX = new THREE.CanvasTexture(c);
+  PIN_TEX.minFilter = THREE.NearestFilter;
+  PIN_TEX.magFilter = THREE.NearestFilter;
+  return PIN_TEX;
+}
+
 /** One takeaway cup, used both on the counter and in your hands. */
 function cupMesh () {
   const g = new THREE.Group();
@@ -960,6 +990,31 @@ export class View3D {
       this.scene.remove(sp);
       this.bubbles.delete(id);
     }
+  }
+
+  /**
+   * Point at where to go next, or nowhere.
+   *
+   * Drawn on top of everything (depthTest off) so it does not disappear
+   * behind the counter you are trying to find.
+   */
+  setWaypoint (target) {
+    if (!this.pin) {
+      this.pin = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: pinTexture(), depthTest: false, transparent: true
+      }));
+      this.pin.renderOrder = 12;
+      this.scene.add(this.pin);
+    }
+    if (this.pin.parent !== this.scene) this.scene.add(this.pin);
+    if (!target) { this.pin.visible = false; return; }
+    this.pin.visible = true;
+    const bob = Math.sin(performance.now() / 380) * 7;
+    this.pin.position.set(target.x, (target.y0 ?? 190) + 60 + bob, target.y);
+    // Constant on screen, like the order bubbles.
+    const d = this.camera.position.distanceTo(this.pin.position);
+    const k = Math.max(150, Math.min(1400, d)) * 0.105;
+    this.pin.scale.set(k, k * 1.25, 1);
   }
 
   /** Cheap per-frame sync so dragging in plan view moves the 3D object too. */

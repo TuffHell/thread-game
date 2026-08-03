@@ -242,6 +242,20 @@ export class ClinicShift {
     this.finished = true;
   }
 
+  /**
+   * Where to go next: the board if it has gone stale, otherwise the person
+   * who is up. That is the careful play, and the pin should teach it.
+   */
+  nextTarget () {
+    if (this.finished) return null;
+    if (this.board && !this.boardFresh()) {
+      return { x: this.board.x, y: this.board.y, label: 'update the board', y0: 170 };
+    }
+    const up = this.next();
+    if (!up) return null;
+    return { x: up.person.x, y: up.person.y, label: `call ${up.name} in person`, y0: 180 };
+  }
+
   talkTarget (x, y) {
     let best = null, bestD = MODEL.reach * 1.2;
     for (const p of this.queue) {

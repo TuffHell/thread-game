@@ -264,6 +264,29 @@ export class Service {
    * touch flow, does not cost time. Returns their next line, or null if
    * there is nobody close enough.
    */
+  /**
+   * Where to go next, for the wayfinder.
+   *
+   * Whatever the batcher would do — the same ordering the mode rewards — so
+   * following the pin is not just navigable, it teaches the right habit.
+   */
+  nextTarget () {
+    if (this.finished) return null;
+    const avail = this.available();
+    if (!avail.length) return null;
+    for (const step of ['grind', 'pull', 'steam', 'serve', 'clear']) {
+      const a = avail.find(x => x.step === step);
+      if (!a) continue;
+      const st = this.stationFor(a.step, a.order);
+      if (!st) continue;
+      const label = a.step === 'serve' ? `take the ${a.order.name} over`
+        : a.step === 'clear' ? 'collect the cup'
+          : `${STEP_LABEL[a.step].toLowerCase()}`;
+      return { x: st.x, y: st.y, label, y0: a.step === 'clear' ? 80 : 150 };
+    }
+    return null;
+  }
+
   /** Is anybody close enough to speak to? */
   talkTarget (x, y) {
     let best = null, bestD = MODEL.handReach * 1.4;

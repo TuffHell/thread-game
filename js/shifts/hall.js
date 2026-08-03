@@ -297,6 +297,19 @@ export class HallShift {
     return { step: e.def.id, event: e, handled: true };
   }
 
+  /** Whatever is landing hardest on whoever has the least left. */
+  nextTarget () {
+    if (this.finished || !this.live.length) return null;
+    const worst = this.guests.filter(g => !g.left)
+      .sort((a, b) => a.reserve - b.reserve)[0];
+    const ref = worst ? worst.thing : { x: this.room.w / 2, y: this.room.h / 2 };
+    const e = this.live.slice().sort((a, b) =>
+      Math.hypot(a.thing.x - ref.x, a.thing.y - ref.y) -
+      Math.hypot(b.thing.x - ref.x, b.thing.y - ref.y))[0];
+    if (!e?.thing) return null;
+    return { x: e.thing.x, y: e.thing.y, label: e.def.fixLabel.toLowerCase(), y0: 150 };
+  }
+
   talkTarget (x, y) {
     let best = null, bestD = MODEL.reach * 1.1;
     for (const g of this.guests) {
