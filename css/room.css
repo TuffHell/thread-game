@@ -1239,3 +1239,35 @@ html, body { overflow: hidden; }
 /* A job in the panel that is about to cost somebody something. */
 .svc-order.warn b { color: #ffb9ad; }
 .svc-order.warn .steps { color: #ffb9ad; }
+
+/* ---------------------------------------------------------------- */
+/* Masking, made visible                                             */
+/* ---------------------------------------------------------------- */
+
+/*
+ * Two bars in one track. The solid one is what the room is actually costing
+ * them; the ghost behind it is how they are coming across. Masking works —
+ * that is why people do it — so the ghost barely moves while the real bar
+ * drops, and the gap between them is the thing every well-meaning observer
+ * in the building is failing to see.
+ */
+.m-track { position: relative; }
+.m-ghost {
+  position: absolute;
+  inset: 0 auto 0 0;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(255, 214, 160, 0.42) 0 3px,
+    rgba(255, 214, 160, 0.12) 3px 6px);
+}
+.m-fill { position: relative; }
+
+.meters.masking .m-chip {
+  background: rgba(120, 74, 30, 0.7);
+  border-color: #ffc46b;
+  color: #ffe3ac;
+}
+.m-chip { transition: background var(--t-fast), border-color var(--t-fast); }

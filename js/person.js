@@ -34,6 +34,7 @@ import { sample, explain, DEFAULT_WEIGHTS } from './field.js';
  */
 export const PEOPLE = {
   mara: {
+    key: 'mara',
     name: 'Mara',
     blurb: 'Comes in most Tuesdays. Noise is the one that gets her, and she ' +
            'needs to be able to see the door.',
@@ -41,6 +42,7 @@ export const PEOPLE = {
     spike: 0.42, reserve: 100, absorbs: true
   },
   ollie: {
+    key: 'ollie',
     name: 'Ollie',
     blurb: 'Fine with noise, undone by flicker and glare. Will not ask anyone ' +
            'to change anything.',
@@ -48,11 +50,44 @@ export const PEOPLE = {
     spike: 0.44, reserve: 96, absorbs: true
   },
   jun: {
+    key: 'jun',
     name: 'Jun',
     blurb: 'Crowds and being close to strangers. Recovers quickly if there is ' +
            'anywhere at all to go.',
     weights: { ...DEFAULT_WEIGHTS, crowd: 1.0, clutter: 0.7, escape: 0.95, sound: 0.7 },
     spike: 0.46, reserve: 104, absorbs: true
+  },
+
+  /**
+   * The other half of sensory difference.
+   *
+   * Every room in this game so far has been solvable by making things
+   * quieter, dimmer and emptier, and that is a real strategy that helps real
+   * people — but taken as the whole answer it is wrong, and wrong in a way
+   * that gets built. Hypo-reactivity is as well attested as hyper: some
+   * people need input to feel located in a space at all, and a silent, still,
+   * evenly lit room is not neutral to them. It is under-stimulating, which is
+   * its own distress and drives its own seeking.
+   *
+   * Sam has floors rather than only ceilings. A dead corner costs him exactly
+   * the way a grinder costs Mara, through the same worst-channel combine, and
+   * the two of them in one room is the whole design problem stated in two
+   * people. There is no setting of the dials that is simply "better". There
+   * is only a room with more than one kind of place in it.
+   */
+  sam: {
+    key: 'sam',
+    name: 'Sam',
+    blurb: 'Needs something going on — a hum, movement, something to look at. ' +
+           'A dead quiet corner is the part he cannot sit in.',
+    weights: { ...DEFAULT_WEIGHTS, sound: 0.88, light: 1.0, flicker: 0.5, glare: 0.3,
+               crowd: 0.45, clutter: 0.25, escape: 0.45 },
+    // Below these, the shortfall is load. A room with nothing in it reads to
+    // him almost the way a grinder reads to Mara — and note there are two of
+    // them, so a single lamp is not the answer. Silence and darkness are
+    // separate problems and both have to be met.
+    floors: { sound: 0.36, light: 0.40, crowd: 0.18 },
+    spike: 0.44, reserve: 100, absorbs: true, seeks: true
   }
 };
 
@@ -77,7 +112,22 @@ export const MODEL = {
 
   // Masking. Triggered by people being close, works, and costs.
   maskThreshold: 0.34,
-  maskDrain: 3.2
+  maskDrain: 3.2,
+
+  /**
+   * Being watched, and what it does to settling.
+   *
+   * Settling is not just sitting down. It is the small self-regulating
+   * things people do — moving, rocking, fiddling, letting the face go — and
+   * every one of them is suppressed when there is somebody who might see.
+   * So a refuge that is overlooked is worth a fraction of one that is not,
+   * and "a corner where nobody can see you" stops being a nicety and starts
+   * being the load-bearing part of the room. Autistic accounts are close to
+   * unanimous on this and it is the easiest thing in the world to leave out
+   * of a floor plan.
+   */
+  observedAt: 0.30,       // crowd above this and you are being watched
+  observedPenalty: 0.72   // how much of settling it takes away
 };
 
 /** Things that happen in a café. None of them are anyone being unkind. */
@@ -253,6 +303,7 @@ export function visit (room, grid, person = PEOPLE.mara) {
 
   let at = room.door;
   let reserve = person.reserve;
+  let shown = person.reserve;       // what an onlooker would see
   let absorption = 0;
   let masked = false;
 
@@ -260,6 +311,7 @@ export function visit (room, grid, person = PEOPLE.mara) {
   const events = [];
   let worst = { load: -1, x: at.x, y: at.y };
   let maskedSeconds = 0, settledSeconds = 0, absorbedSeconds = 0;
+  let overlookedSeconds = 0;      // time in a refuge that was in full view
   let outcome = null;
 
   const totalGuess = 140;   // for placing events along the visit
@@ -294,7 +346,8 @@ export function visit (room, grid, person = PEOPLE.mara) {
       if (felt >= ceiling) {
         outcome = {
           ok: false, reason: 'spike', leg: leg.name,
-          at: { x, y, load: felt }, blame: explain(grid, x, y, person.weights)[0]
+          at: { x, y, load: felt },
+          blame: explain(grid, x, y, person.weights, person.floors)[0]
         };
         break;
       }
@@ -302,19 +355,38 @@ export function visit (room, grid, person = PEOPLE.mara) {
       reserve -= felt * MODEL.drain * seconds;
       if (masked) { reserve -= MODEL.maskDrain * seconds; maskedSeconds += seconds; }
 
-      // Settling, if there is somewhere to do it and they need to.
+      // Settling, if there is somewhere to do it, they need to, and nobody
+      // is watching. A quiet corner in full view of the queue is a chair.
       const refuge = refugeNear(room, x, y);
+      const observed = Math.min(1, Math.max(0,
+        (crowd - MODEL.observedAt) / (1 - MODEL.observedAt)));
+      const privacy = 1 - observed * MODEL.observedPenalty;
       if (refuge && absorption < 0.6) {
-        absorption = Math.min(1, absorption + MODEL.settleRate * seconds * 3);
-        settledSeconds += seconds;
+        absorption = Math.min(1, absorption + MODEL.settleRate * seconds * 3 * privacy);
+        if (privacy > 0.6) settledSeconds += seconds;
+        else overlookedSeconds += seconds;
       } else {
-        absorption = Math.min(1, absorption + MODEL.absorbRate * seconds);
+        absorption = Math.min(1, absorption + MODEL.absorbRate * seconds * privacy);
       }
       if (absorption > 0.5) absorbedSeconds += seconds;
 
+      /*
+       * What they look like, as opposed to what it costs.
+       *
+       * This is the number the mode exists to expose. Masking works — that is
+       * why people do it — so somebody running on fumes in a crowded room
+       * presents as completely fine, and every observer in the room, however
+       * well meaning, reads "fine" and acts accordingly. `shown` decays at a
+       * fraction of the real rate while masking, so the two bars come apart
+       * on screen and you can watch somebody being fine at enormous expense.
+       */
+      shown -= (masked ? felt * MODEL.drain * seconds * 0.18
+                       : (shown > reserve ? (shown - reserve) * 0.35 : felt * MODEL.drain * seconds));
+
       steps.push({
         x, y, load: felt, raw, absorption, reserve: Math.max(0, reserve),
-        masked, refuge: !!refuge
+        shown: Math.max(0, Math.min(person.reserve, shown)),
+        masked, refuge: !!refuge, observed, privacy
       });
 
       // Something happens. It collapses absorption, which is the whole cost.
@@ -334,7 +406,8 @@ export function visit (room, grid, person = PEOPLE.mara) {
       if (reserve <= 0) {
         outcome = {
           ok: false, reason: 'spent', leg: leg.name,
-          at: { x, y, load: felt }, blame: explain(grid, x, y, person.weights)[0]
+          at: { x, y, load: felt },
+          blame: explain(grid, x, y, person.weights, person.floors)[0]
         };
         break;
       }
@@ -389,8 +462,9 @@ export function visit (room, grid, person = PEOPLE.mara) {
     path: steps,
     events,
     reserve: Math.max(0, reserve),
+    shown: Math.max(0, Math.min(person.reserve, shown)),
     worst,
-    maskedSeconds, settledSeconds, absorbedSeconds
+    maskedSeconds, settledSeconds, absorbedSeconds, overlookedSeconds
   };
 }
 

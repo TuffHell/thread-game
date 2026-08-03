@@ -59,6 +59,13 @@ export const INTERLUDES = {
     'again, in the corner under the new lamp, and stays until closing.\n\n' +
     'This is the part of the job that has no metric. An absence ends. ' +
     'Nobody writes in to tell you.',
+  'library-2':
+    'The librarian moves the soft chairs back under the window, puts the ' +
+    'radio on low at the far end, and leaves one wing exactly as silent as ' +
+    'it was.\n\nBoth of them come in on Thursday. They sit about nine ' +
+    'metres apart and neither of them ever finds out that the other one ' +
+    'exists, which is the correct outcome and is nobody\u2019s story but ' +
+    'the building\u2019s.',
   'cafe-2':
     'Two rules and a grant. Franco keeps the grinder where he wants it and ' +
     'the room still works, which he takes as proof that he was right all ' +
@@ -102,6 +109,12 @@ export const CODA =
  * than in the hall.
  */
 export const AFTERWORD = {
+  sam: {
+    library: '\u201cThere is a radio on somewhere. I can work in here now.\u201d',
+    cafe: '\u201cThis is perfect. It is never quiet and I never have to explain that.\u201d',
+    hall: '\u201cLoads going on. I could stay here all day.\u201d',
+    clinic: '\u201cI would rather a busy waiting room than a silent one, honestly.\u201d'
+  },
   mara: {
     cafe: '\u201cI stayed for the second one. I never stay for the second one.\u201d',
     hall: '\u201cI could hear the person next to me. In here. That is genuinely new.\u201d',
@@ -136,6 +149,14 @@ export const CAST = {
            'He revises best in public rooms, close to other people quietly ' +
            'working. He stopped coming to the reading room during exams, ' +
            'which is exactly when he needs it, and he will never, ever say why.'
+  },
+  sam: {
+    story: 'Sam is twenty-six and works nights, so he reads in the afternoon. ' +
+           'He needs a room to have something going on in it — a hum, people ' +
+           'moving about, something to look at. In a silent one he cannot ' +
+           'settle at all, and he has spent a lot of his life being told ' +
+           'that this is the opposite of what autistic people need, by ' +
+           'people who have met one autistic person.'
   },
   jun: {
     story: 'Jun is forty-one and books the first appointment of the day, ' +
@@ -202,13 +223,35 @@ export const COMMISSIONS = [
     ]
   },
   {
+    id: 'library-2',
+    epigraph: '“Quiet” is not a direction. It is one end of a dial with a ' +
+              'person at each end.',
+    stake: 'The room you fixed, and the person it now fails.',
+    room: 'libraryQuiet',
+    title: 'The Quiet Room',
+    people: ['ollie', 'sam'],
+    unlock: 'cafe-2',
+    budget: 5,
+    brief:
+      'The reading room worked so well that the library did the rest of it ' +
+      'the same way — panels, soft lighting, a rule about talking. Ollie is ' +
+      'thriving. Sam has stopped coming, and when the librarian finally ' +
+      'asked him why, he said it was too quiet, and she assumed he was ' +
+      'being difficult.\n\nHe was not. Some people need input to feel ' +
+      'located in a room at all, and a silent one is not neutral to them. ' +
+      'Both of these people are autistic. They need opposite things from ' +
+      'the same four walls.',
+    owner: 'the librarian',
+    constraints: []
+  },
+  {
     id: 'clinic-1',
     epigraph: 'You can decide a caf\u00e9 is not worth it. You cannot decide that about a clinic.',
     stake: 'The first room where leaving is not an option.',
     room: 'clinic',
     title: 'The Waiting Room',
     people: ['jun'],
-    unlock: 'cafe-2',
+    unlock: 'library-2',
     brief:
       'Appointments are not optional, which makes this the most important ' +
       'room in the game. The television is bolted to the wall and nobody who ' +
@@ -288,8 +331,54 @@ const KEY = 'room-to-breathe.progress';
 
 export function loadProgress () {
   try {
-    return JSON.parse(localStorage.getItem(KEY)) ?? { done: {} };
-  } catch { return { done: {} }; }
+    const p = JSON.parse(localStorage.getItem(KEY)) ?? { done: {} };
+    p.done = p.done ?? {};
+    p.strain = p.strain ?? {};
+    return p;
+  } catch { return { done: {}, strain: {} }; }
+}
+
+/**
+ * Strain carried between commissions.
+ *
+ * Autistic burnout is cumulative and it is not a bad day. It builds over
+ * long periods of demand exceeding capacity, it reduces what somebody can
+ * do next time, and recovery requires the demands to actually come down —
+ * not willpower, not a weekend. Raymaker and colleagues (2020) is the piece
+ * of work that finally described it properly, and once you have read it the
+ * idea that each visit starts fresh looks like a fiction.
+ *
+ * So it does not. Leave somebody scraping through on four per cent and they
+ * arrive at the next room with less than they had. Give them a room with
+ * genuine room to spare and they get some of it back. It is bounded at both
+ * ends — this is a game and a death spiral would be both cruel and wrong —
+ * but the direction is the point: what you did last time is still true.
+ */
+const STRAIN_CAP = 0.34;
+
+export function recordStrain (progress, results) {
+  progress.strain = progress.strain ?? {};
+  for (const r of results) {
+    const key = r.person.key ?? r.person.name.toLowerCase();
+    const margin = r.reserve / r.person.reserve;         // 0..1 left at the end
+    // Scraping through costs; comfort pays back. Half rate on recovery,
+    // because that is how it actually goes.
+    const delta = margin < 0.25 ? (0.25 - margin) * 0.9
+      : -(Math.min(margin, 0.6) - 0.25) * 0.5;
+    const next = (progress.strain[key] ?? 0) + delta;
+    progress.strain[key] = Math.max(0, Math.min(STRAIN_CAP, next));
+  }
+  return progress;
+}
+
+/** What somebody actually walks in with, given what the last rooms cost. */
+export function withStrain (person, progress) {
+  const key = person.key ?? person.name.toLowerCase();
+  const strain = progress?.strain?.[key] ?? 0;
+  if (!strain) return person;
+  // A copy, always. The profiles are shared and mutating one would quietly
+  // change every room in the game.
+  return { ...person, reserve: person.reserve * (1 - strain), strain };
 }
 
 export function saveProgress (p) {

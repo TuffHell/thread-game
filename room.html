@@ -48,9 +48,13 @@
   <!-- Live state of whoever is walking -->
   <div class="meters" id="meters" hidden>
     <span class="m-name" id="mName"></span>
-    <div class="m-bar"><i>reserve</i><div class="m-track"><div class="m-fill" id="mReserve"></div></div></div>
+    <!-- Two bars in one track: what it is costing, and what they look like.
+         Masking is the gap between them. -->
+    <div class="m-bar"><i>what it is costing</i>
+      <div class="m-track"><div class="m-ghost" id="mShown"></div><div class="m-fill" id="mReserve"></div></div>
+    </div>
     <div class="m-bar"><i>absorption</i><div class="m-track"><div class="m-fill teal" id="mAbsorb"></div></div></div>
-    <span class="m-chip" id="mMask" hidden>holding it together</span>
+    <span class="m-chip" id="mMask" hidden><span id="mMaskText">holding it together</span></span>
   </div>
 
   <div class="interrupt3d" id="interrupt3d" hidden>

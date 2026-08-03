@@ -12,6 +12,7 @@ import { BUILDERS } from './rooms.js';
 import { def, KINDS, spent, thing, checkConstraints } from './room.js';
 import { makeGrid, compute, combine, explain, DOMAINS } from './field.js';
 import { visit, PEOPLE } from './person.js';
+import { withStrain } from './campaign.js';
 import {
   fit, toScreen, toRoom, renderPixelPlan, drawPixelLabels
 } from './plan.js';
@@ -20,6 +21,21 @@ const READABLE = {
   sound: 'noise', light: 'brightness', flicker: 'flicker', glare: 'glare',
   crowd: 'people close by', clutter: 'visual clutter', smell: 'smell',
   escape: 'nowhere to retreat to', exposure: 'cannot see the way out'
+};
+
+/**
+ * The same domains, read from underneath.
+ *
+ * For somebody with a floor, the problem is the absence, and saying "noise"
+ * when what they mean is "there is nothing here at all" would be the game
+ * misreporting its own simulation.
+ */
+const TOO_LITTLE = {
+  sound: 'how silent it is', light: 'how dim it is',
+  crowd: 'how empty it is', clutter: 'how bare it is',
+  flicker: 'nothing moving', glare: 'nothing catching the light',
+  smell: 'nothing to smell', escape: 'nothing to head for',
+  exposure: 'nothing to orient by'
 };
 
 export class Studio {
@@ -39,7 +55,9 @@ export class Studio {
     this.room = BUILDERS[commission.room]();
     if (commission.budget != null) this.room.budget = commission.budget;
     this.constraints = commission.constraints ?? [];
-    this.people = commission.people.map(k => PEOPLE[k]);
+    // Whoever they are today, which is not who they were before the last
+    // room. Strain from previous commissions is carried in.
+    this.people = commission.people.map(k => withStrain(PEOPLE[k], this.progress));
     this.viewIdx = 0;
     this.grid = makeGrid(this.room, 12);
     this.held = null;
@@ -56,7 +74,7 @@ export class Studio {
     this.viewIdx = Math.max(0, Math.min(this.people.length - 1, i));
     // Re-lay the display field in this person's weights so the heatmap shows
     // the room as it is for them, which is the entire point of profiles.
-    combine(this.grid, this.person.weights);
+    combine(this.grid, this.person.weights, this.person.floors);
     this.stamp = (this.stamp ?? 0) + 1;
     this.dirty = true;
     this.ui.onResult(this);
@@ -68,10 +86,10 @@ export class Studio {
     // Everyone walks. The same layers, weighted per person, so the same room
     // fails differently for each of them.
     this.results = this.people.map(p => {
-      combine(this.grid, p.weights);
+      combine(this.grid, p.weights, p.floors);
       return visit(this.room, this.grid, p);
     });
-    combine(this.grid, this.person.weights);
+    combine(this.grid, this.person.weights, this.person.floors);
     this.broken = checkConstraints(this.room, this.constraints);
     this.stamp = (this.stamp ?? 0) + 1;
     this.dirty = true;
@@ -112,7 +130,11 @@ export class Studio {
     if (bad.reason === 'blocked') {
       return { ok: false, headline: 'There is no way through.', detail: `Blocked ${bad.leg}.` };
     }
-    const cause = bad.blame ? READABLE[bad.blame.domain] ?? bad.blame.domain : 'the room';
+    const cause = bad.blame
+      ? (bad.blame.short
+        ? (TOO_LITTLE[bad.blame.domain] ?? bad.blame.domain)
+        : (READABLE[bad.blame.domain] ?? bad.blame.domain))
+      : 'the room';
     const broke = bad.events.length
       ? ` ${who} had been interrupted ${bad.events.length} time${bad.events.length > 1 ? 's' : ''} by then` +
         (bad.events.some(e => !e.recoverable) ? ', with nowhere to settle after.' : '.')
@@ -229,18 +251,20 @@ export class Studio {
 
   /** The worst channel at an arbitrary point, for the free-walk readout. */
   probeAt (x, y) {
-    return explain(this.grid, x, y, this.person.weights)
+    return explain(this.grid, x, y, this.person.weights, this.person.floors)
       .filter(d => d.raw > 0.05)[0] ?? null;
   }
 
   /** What is worst at the point under the cursor, in this person's terms. */
   probeReading () {
     if (!this.probe) return null;
-    const top = explain(this.grid, this.probe.x, this.probe.y, this.person.weights)
+    const top = explain(this.grid, this.probe.x, this.probe.y, this.person.weights, this.person.floors)
       .filter(d => d.raw > 0.04)
       .slice(0, 3);
     if (!top.length) return null;
-    return top.map(d => `${READABLE[d.domain] ?? d.domain} ${Math.round(d.raw * 100)}%`);
+    return top.map(d => d.short
+      ? `${TOO_LITTLE[d.domain] ?? d.domain} ${Math.round(d.raw * 100)}%`
+      : `${READABLE[d.domain] ?? d.domain} ${Math.round(d.raw * 100)}%`);
   }
 
   /* -------------------------------------------------------------- */

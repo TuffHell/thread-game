@@ -11,7 +11,7 @@ import { KINDS } from './room.js';
 import { DOMAINS } from './field.js';
 import {
   COMMISSIONS, CAST, GAME, FRAME, INTERLUDES, CODA, AFTERWORD, loadProgress,
-  saveProgress, isUnlocked, starsFor, finishedRooms
+  saveProgress, isUnlocked, starsFor, finishedRooms, recordStrain
 } from './campaign.js';
 import { PEOPLE } from './person.js';
 import { palette, settings } from './config.js';
@@ -163,6 +163,7 @@ const ui = {
 
 const canvas = $('stage');
 const studio = new Studio(canvas, ui);
+studio.progress = progress;
 const gl = $('stage3d');
 const view = new View3D(gl);
 view.setStyle(prefs.style);
@@ -404,6 +405,8 @@ $('signoffBtn').onclick = () => {
   if (!studio.ready()) return;
   const stars = starsFor(studio.results, studio.budgetLeft());
   progress.done[commission.id] = Math.max(progress.done[commission.id] ?? 0, stars);
+  // What this room cost them follows them into the next one.
+  recordStrain(progress, studio.results);
   saveProgress(progress);
 
   $('debriefTitle').textContent = commission.title;
@@ -833,9 +836,19 @@ function updateMeters (step) {
   if (!step) return;
   const p = studio.person;
   setText('mName', p.name);
-  setW('mReserve', `${Math.round(Math.max(0, step.reserve / p.reserve * 100))}%`);
+  const real = Math.max(0, step.reserve / p.reserve * 100);
+  const seen = Math.max(0, (step.shown ?? step.reserve) / p.reserve * 100);
+  setW('mReserve', `${Math.round(real)}%`);
+  // The ghost bar is how they are coming across. While masking it barely
+  // moves, so the gap opens between the two — which is the entire point:
+  // masking works, and that is exactly what makes it invisible and costly.
+  setW('mShown', `${Math.round(seen)}%`);
+  $('meters').classList.toggle('masking', seen - real > 6);
   setW('mAbsorb', `${Math.round(step.absorption * 100)}%`);
   $('mMask').hidden = !step.masked;
+  setText('mMaskText', step.masked
+    ? `holding it together — looks ${Math.round(seen)}%, is ${Math.round(real)}%`
+    : '');
 }
 
 /* Frame loop --------------------------------------------------------- */

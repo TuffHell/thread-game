@@ -349,12 +349,30 @@ function computeEscape (r, grid) {
  * game about aggregate comfort, which is the model the whole project exists
  * to argue against.
  */
-export function combine (grid, weights = DEFAULT_WEIGHTS) {
+/**
+ * Combine the layers into one load field, for one person.
+ *
+ * `floors` is the second half of sensory difference and the half that games
+ * about autism almost always leave out. Hyper-reactivity — too much noise,
+ * too much light — is the familiar story. Hypo-reactivity is just as real:
+ * some people need a certain amount of input to feel present in a room at
+ * all, and a silent, still, evenly lit space is not neutral to them, it is
+ * its own kind of unbearable. Under-stimulation drives distress and drives
+ * seeking, and a designer who only knows the first story will build a room
+ * that fails the second person while looking, on paper, perfect.
+ *
+ * So a floor is a minimum: the shortfall below it is load, weighted exactly
+ * like an excess above it, and it goes through the same worst-channel
+ * combine. That means "make everything quiet" — the strategy this game
+ * otherwise rewards all the way through — will straightforwardly fail
+ * somebody, which is the point of putting it in.
+ */
+export function combine (grid, weights = DEFAULT_WEIGHTS, floors = null) {
   const { load, layers } = grid;
   // The arrays and scale factors are pulled out of the loop: this runs once
   // per person per visit, over every cell, and property lookups through two
   // objects four thousand times a call are most of what it used to cost.
-  const arrs = [], scale = [];
+  const arrs = [], scale = [], floor = [];
   let maxW = 0;
   for (const d of DOMAINS) if ((weights[d] ?? 0) > maxW) maxW = weights[d];
   for (const d of DOMAINS) {
@@ -362,6 +380,7 @@ export function combine (grid, weights = DEFAULT_WEIGHTS) {
     if (w <= 0) continue;
     arrs.push(layers[d]);
     scale.push(w / maxW);
+    floor.push(floors?.[d] ?? 0);
   }
   const k = arrs.length;
   const spread = 0.22 / k;
@@ -369,7 +388,10 @@ export function combine (grid, weights = DEFAULT_WEIGHTS) {
   for (let i = 0; i < load.length; i++) {
     let worst = 0, sum = 0;
     for (let j = 0; j < k; j++) {
-      const v = arrs[j][i] * scale[j];
+      const raw = arrs[j][i];
+      // Too much costs. So does too little, for anyone who has a floor.
+      const off = floor[j] > 0 && raw < floor[j] ? (floor[j] - raw) : raw;
+      const v = off * scale[j];
       if (v > worst) worst = v;
       sum += v;
     }
@@ -386,9 +408,9 @@ export function combine (grid, weights = DEFAULT_WEIGHTS) {
  * provided the caller put the right person's load array back first — which
  * is the whole trick that makes a patched trial cheap.
  */
-export function combineCells (grid, weights, cells) {
+export function combineCells (grid, weights, cells, floors = null) {
   const { load, layers } = grid;
-  const arrs = [], scale = [];
+  const arrs = [], scale = [], floor = [];
   let maxW = 0;
   for (const d of DOMAINS) if ((weights[d] ?? 0) > maxW) maxW = weights[d];
   for (const d of DOMAINS) {
@@ -396,6 +418,7 @@ export function combineCells (grid, weights, cells) {
     if (w <= 0) continue;
     arrs.push(layers[d]);
     scale.push(w / maxW);
+    floor.push(floors?.[d] ?? 0);
   }
   const k = arrs.length;
   const spread = 0.22 / k;
@@ -403,7 +426,9 @@ export function combineCells (grid, weights, cells) {
   for (const i of cells) {
     let worst = 0, sum = 0;
     for (let j = 0; j < k; j++) {
-      const v = arrs[j][i] * scale[j];
+      const raw = arrs[j][i];
+      const off = floor[j] > 0 && raw < floor[j] ? (floor[j] - raw) : raw;
+      const v = off * scale[j];
       if (v > worst) worst = v;
       sum += v;
     }
@@ -418,9 +443,17 @@ export function sample (grid, x, y) {
 }
 
 /** Per-domain reading at a point, for explaining a bad spot to the player. */
-export function explain (grid, x, y, weights = DEFAULT_WEIGHTS) {
+export function explain (grid, x, y, weights = DEFAULT_WEIGHTS, floors = null) {
   const i = grid.at(x, y);
   return DOMAINS
-    .map(d => ({ domain: d, raw: grid.layers[d][i], weighted: grid.layers[d][i] * (weights[d] ?? 0) }))
+    .map(d => {
+      const raw = grid.layers[d][i];
+      const f = floors?.[d] ?? 0;
+      // A shortfall is reported as its own thing, so the verdict can say
+      // "there is nothing here at all" rather than blaming a level of nought.
+      const short = f > 0 && raw < f;
+      const off = short ? f - raw : raw;
+      return { domain: d, raw: off, actual: raw, short, weighted: off * (weights[d] ?? 0) };
+    })
     .sort((a, b) => b.weighted - a.weighted);
 }

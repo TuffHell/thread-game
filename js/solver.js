@@ -50,7 +50,7 @@ export function evaluate (r, constraints, people, cell = FINE_CELL) {
   // from it instead of recombining nine layers over every cell again.
   const loads = [];
   const results = people.map(p => {
-    combine(grid, p.weights);
+    combine(grid, p.weights, p.floors);
     loads.push(grid.load.slice());
     return visit(r, grid, p);
   });
@@ -127,6 +127,10 @@ export function candidates (r, ev) {
   const failing = ev.results.filter(res => !res.ok)
     .sort((a, b) => perScore(a) - perScore(b))[0] ?? ev.results[0];
   const blame = failing.blame?.domain;
+  // Whether the problem is too much of something or not enough of it. The
+  // whole candidate list inverts on this: for a shortfall, taking things
+  // away is exactly the wrong move and the fix is something that emits.
+  const short = !!failing.blame?.short;
   const at = failing.at ?? failing.worst;
   const out = [];
 
@@ -136,9 +140,26 @@ export function candidates (r, ev) {
     { x: 70, y: 70 }, { x: r.w - 70, y: 70 },
     { x: 70, y: r.h - 70 }, { x: r.w - 70, y: r.h - 70 }
   ];
-  for (const t of r.things) {
-    if (!t.placed || !t.movable || !def(t).emits?.[blame]) continue;
-    for (const to of dumps) out.push({ kind: 'move', t, to, label: `move the ${def(t).label.toLowerCase()}` });
+  if (!short) {
+    for (const t of r.things) {
+      if (!t.placed || !t.movable || !def(t).emits?.[blame]) continue;
+      for (const to of dumps) out.push({ kind: 'move', t, to, label: `move the ${def(t).label.toLowerCase()}` });
+    }
+  } else {
+    // Not enough of it: whatever produces it should come closer, not go away.
+    for (const t of r.things) {
+      if (!t.placed || !t.movable || !def(t).emits?.[blame]) continue;
+      for (const to of [at, { x: at.x + 100, y: at.y }, { x: at.x, y: at.y + 100 }]) {
+        out.push({ kind: 'move', t, to, label: `bring the ${def(t).label.toLowerCase()} closer` });
+      }
+    }
+    // And anything absorbing it is now part of the problem.
+    for (const t of r.things) {
+      if (!t.placed || !t.movable || !def(t).absorbs?.[blame]) continue;
+      for (const to of dumps) {
+        out.push({ kind: 'move', t, to, label: `move the ${def(t).label.toLowerCase()} out of the way` });
+      }
+    }
   }
 
   const calm = calmestSpot(r, ev.grid);
@@ -165,7 +186,11 @@ export function candidates (r, ev) {
   for (const k of r.tray) {
     const D = KINDS[k];
     if ((D.cost ?? 0) > left) continue;
-    if (!(D.absorbs?.[blame] || D.refuge)) continue;
+    // Too much of it wants an absorber or somewhere to retreat to. Not
+    // enough of it wants a source. Offering only the first was why a room
+    // that was too empty could not be hinted at all.
+    const useful = short ? D.emits?.[blame] : (D.absorbs?.[blame] || D.refuge);
+    if (!useful) continue;
     const spots = [at, { x: at.x + 90, y: at.y }, { x: at.x, y: at.y + 90 }];
     for (const t of r.things) {
       if (t.placed && def(t).emits?.[blame]) spots.push({ x: t.x, y: t.y });
@@ -176,7 +201,7 @@ export function candidates (r, ev) {
     }
   }
 
-  return { list: out, failing, blame, at };
+  return { list: out, failing, blame, short, at };
 }
 
 /** Put a candidate in place, hand back the way to undo it. */
@@ -231,9 +256,9 @@ function trialPatched (r, constraints, people, cand, base) {
   const results = people.map((p, i) => {
     if (base.loads?.[i]) {
       grid.load.set(base.loads[i]);
-      combineCells(grid, p.weights, touched);
+      combineCells(grid, p.weights, touched, p.floors);
     } else {
-      combine(grid, p.weights);
+      combine(grid, p.weights, p.floors);
     }
     return visit(r, grid, p);
   });
@@ -259,7 +284,7 @@ function trialPatched (r, constraints, people, cand, base) {
  */
 export function bestMove (r, constraints, people, ev, cap = Infinity, opts = {}) {
   const { exact = false } = opts;
-  const { list, failing, blame, at } = candidates(r, ev);
+  const { list, failing, blame, short, at } = candidates(r, ev);
   const pool = cap === Infinity ? list : list.slice(0, cap);
   if (!pool.length) return null;
 
@@ -272,7 +297,7 @@ export function bestMove (r, constraints, people, ev, cap = Infinity, opts = {})
     if (!best || score > best.score) best = { cand, score };
   }
   if (!best || best.score <= scoreOf(ev) + 1e-6) return null;
-  return { ...best, failing, blame, at };
+  return { ...best, failing, blame, short, at };
 }
 
 /** Apply a move for real. */

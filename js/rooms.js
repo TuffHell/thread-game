@@ -110,6 +110,55 @@ function library () {
 }
 
 /**
+ * The reading room after the refit that went one way only.
+ *
+ * The library liked what the survey did for Ollie so much that it did the
+ * whole building the same way: acoustic panels on every wall, the strip
+ * lights out and two dim lamps in, a rule about talking. For Ollie it is the
+ * best room he has ever worked in. For Sam there is nothing in it at all —
+ * no hum, no movement, nothing to look at — and a room with nothing in it is
+ * not restful to him, it is unusable.
+ *
+ * Nothing here is a mistake anybody would be embarrassed by. It is what
+ * happens when "make it calmer" is treated as a direction rather than as one
+ * end of a dial with a person standing at each end. The tray is deliberately
+ * the other half of the toolbox: things that put input back.
+ */
+function libraryQuiet () {
+  const r = library();
+  r.budget = 5;
+
+  // The refit. Strip lights gone, panels up, radio off, blinds down.
+  r.things = r.things.filter(t => t.kind !== 'fluorescent' && t.kind !== 'speaker');
+  for (const [x, y] of [[120, 40], [420, 40], [40, 400], [840, 320]]) {
+    r.things.push(thing('panel', x, y, { movable: true }));
+  }
+  // Not one working light. The refit took the strip lights out and the
+  // replacements are on order, and it has been on order for a while.
+  // Ollie has never been happier. Sam cannot use the room at all.
+  // The window is shuttered — it was glare, once.
+  r.things = r.things.filter(t => t.kind !== 'window');
+  // The refit did install a quiet corner, and a good one. That is not the
+  // problem here and the level must not let you solve it by buying another:
+  // somewhere to retreat to is already sorted, and the thing that is wrong
+  // is that there is nowhere to be that has anything in it.
+  // Two of them, because a refit this thorough would not have stopped at one.
+  // With retreat properly covered, the only thing left wrong with the room is
+  // that there is nothing in it — which is the whole level.
+  r.things.push(thing('booth', 300, 420, { movable: true }));
+  r.things.push(thing('booth', 660, 250, { movable: true }));
+
+  // What you have to work with is the other half of the toolbox: things that
+  // put something back into a room rather than take it out.
+  // No window: the shutters went up in the same refit and taking them down
+  // again is not in this budget. What you can do is put light and sound back
+  // into the room deliberately, in the places where somebody needs them,
+  // which is a more useful thing to have to think about anyway.
+  r.tray = ['lamp', 'speaker', 'diffuser', 'screen', 'soft'];
+  return r;
+}
+
+/**
  * The clinic waiting room. The one you cannot choose to skip.
  *
  * The refuge already exists here, badly placed, so the puzzle is crowd and
@@ -199,4 +248,4 @@ function hall () {
   return r;
 }
 
-export const BUILDERS = { cafe, library, clinic, hall };
+export const BUILDERS = { cafe, library, libraryQuiet, clinic, hall };
